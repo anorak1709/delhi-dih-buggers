@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio Optimizer Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        cream:      '#fde4d0',
+                        secondary:  '#dcae99',
+                        primary:    '#b57f69',
+                        muted:      '#5e6263',
+                        dark:       '#22242b',
+                        darkest:    '#111418',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+</head>
+
+<body class="min-h-screen text-white p-4 sm:p-6 lg:p-8">
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <p id="loadingText" class="text-primary text-xl font-semibold">Processing...</p>
+        </div>
+    </div>
+
+    <!-- Keyboard Shortcuts Modal -->
+    <div id="shortcutsModal" class="modal">
+        <div class="modal-content">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold text-primary">Keyboard Shortcuts</h2>
+                <button onclick="closeShortcutsModal()" class="text-muted hover:text-primary transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="space-y-3">
+                <div class="flex justify-between items-center py-2 border-b border-muted/30"><span class="text-cream">Add holding</span><span class="kbd">Ctrl + A</span></div>
+                <div class="flex justify-between items-center py-2 border-b border-muted/30"><span class="text-cream">Analyze portfolio</span><span class="kbd">Ctrl + Enter</span></div>
+                <div class="flex justify-between items-center py-2 border-b border-muted/30"><span class="text-cream">Optimize portfolio</span><span class="kbd">Ctrl + O</span></div>
+                <div class="flex justify-between items-center py-2 border-b border-muted/30"><span class="text-cream">Export to CSV</span><span class="kbd">Ctrl + E</span></div>
+                <div class="flex justify-between items-center py-2 border-b border-muted/30"><span class="text-cream">Toggle theme</span><span class="kbd">Ctrl + D</span></div>
+                <div class="flex justify-between items-center py-2 border-b border-muted/30"><span class="text-cream">Show shortcuts</span><span class="kbd">Ctrl + /</span></div>
+                <div class="flex justify-between items-center py-2"><span class="text-cream">Print report</span><span class="kbd">Ctrl + P</span></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto">
+
+        <!-- Header -->
+        <header class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 lg:p-10 mb-6 sm:mb-8 fade-in neon-glow-blue no-print">
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6">
+                <div class="flex items-center gap-4 sm:gap-6">
+                    <div class="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-primary to-secondary rounded-2xl flex items-center justify-center neon-glow-blue">
+                        <svg class="w-10 h-10 sm:w-12 sm:h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+                    </div>
+                    <div class="text-center sm:text-left">
+                        <h1 class="text-3xl sm:text-4xl lg:text-5xl font-bold gradient-text mb-2">BLOOM ANALYTICS</h1>
+                        <p class="text-muted text-sm sm:text-base">Advanced analytics &amp; optimization for your investments</p>
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <button onclick="toggleTheme()" class="p-3 glass rounded-xl hover:bg-primary/20 transition-all tooltip">
+                        <svg id="themeIcon" class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                        <span class="tooltiptext">Toggle Dark/Light Mode (Ctrl+D)</span>
+                    </button>
+                    <button onclick="showShortcutsModal()" class="p-3 glass rounded-xl hover:bg-secondary/20 transition-all tooltip">
+                        <svg class="w-6 h-6 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+                        <span class="tooltiptext">Keyboard Shortcuts (Ctrl+/)</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="glass rounded-xl sm:rounded-2xl p-2 mb-6 sm:mb-8 fade-in no-print">
+            <div class="grid grid-cols-7 gap-2">
+                <button onclick="switchTab('portfolio')" id="portfolioTab" class="tab-btn active px-4 py-3 sm:py-4 rounded-lg sm:rounded-xl font-semibold text-sm sm:text-base transition-all duration-300"><span class="hidden sm:inline"> </span>Portfolio</button>
+                <button onclick="switchTab('analysis')" id="analysisTab" class="tab-btn px-4 py-3 sm:py-4 rounded-lg sm:rounded-xl font-semibold text-sm sm:text-base transition-all duration-300"><span class="hidden sm:inline"></span>Analysis</button>
+                <button onclick="switchTab('optimization')" id="optimizationTab" class="tab-btn px-4 py-3 sm:py-4 rounded-lg sm:rounded-xl font-semibold text-sm sm:text-base transition-all duration-300"><span class="hidden sm:inline"> </span>Optimize</button>
+                <button onclick="switchTab('risk')" id="riskTab" class="tab-btn px-4 py-3 sm:py-4 rounded-lg sm:rounded-xl font-semibold text-sm sm:text-base transition-all duration-300"><span class="hidden sm:inline"> </span>Charts</button>
+                <button onclick="switchTab('intel')" id="intelTab" class="tab-btn px-4 py-3 sm:py-4 rounded-lg sm:rounded-xl font-semibold text-sm sm:text-base transition-all duration-300"><span class="hidden sm:inline"> </span>Market Intel</button>
+                <button onclick="switchTab('live')" id="liveTab" class="tab-btn px-4 py-3 sm:py-4 rounded-lg sm:rounded-xl font-semibold text-sm sm:text-base transition-all duration-300"><span class="hidden sm:inline"> </span>Live</button>
+                <button onclick="switchTab('retire')" id="retireTab" class="tab-btn px-4 py-3 sm:py-4 rounded-lg sm:rounded-xl font-semibold text-sm sm:text-base transition-all duration-300"><span class="hidden sm:inline"> </span>Retire</button>
+            </div>
+        </nav>
+
+        <!-- Error Alert -->
+        <div id="errorAlert" class="hidden mb-6 glass-strong rounded-xl sm:rounded-2xl p-4 neon-border-purple fade-in no-print">
+            <div class="flex items-start gap-3">
+                <svg class="w-6 h-6 text-secondary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <div class="flex-1"><h3 class="font-semibold text-secondary mb-1">Error</h3><p id="errorMessage" class="text-sm text-cream"></p></div>
+                <button onclick="hideError()" class="text-muted hover:text-primary transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+            </div>
+        </div>
+
+        <!-- Portfolio Tab -->
+        <div id="portfolioContent" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Add Holdings Card -->
+                <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift">
+                    <div class="flex items-center justify-between mb-6 pb-4 border-b border-primary/30">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-primary/20 rounded-xl flex items-center justify-center neon-border-blue"><svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg></div>
+                            <h2 class="text-xl sm:text-2xl font-bold text-primary">Add Holdings</h2>
+                        </div>
+                        <button onclick="exportToCSV()" class="no-print px-4 py-2 bg-secondary/20 hover:bg-secondary/30 border border-secondary/40 text-secondary rounded-lg text-sm font-semibold transition-all tooltip">
+                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>Export
+                            <span class="tooltiptext">Export portfolio to CSV (Ctrl+E)</span>
+                        </button>
+                    </div>
+                    <div class="space-y-4">
+                        <div><label class="block text-sm font-medium text-cream mb-2">Stock Ticker</label><input type="text" id="ticker" placeholder="e.g., AAPL, TSLA" class="w-full px-4 py-3 bg-darkest/60 rounded-xl border border-primary/30 text-white placeholder-muted input-focus focus:outline-none transition-all"></div>
+                        <div><label class="block text-sm font-medium text-cream mb-2">Quantity</label><input type="number" id="quantity" placeholder="Number of shares" min="1" class="w-full px-4 py-3 bg-darkest/60 rounded-xl border border-primary/30 text-white placeholder-muted input-focus focus:outline-none transition-all"></div>
+                        <button onclick="addHolding()" class="w-full bg-gradient-to-r from-primary to-secondary hover:from-primary/80 hover:to-secondary/80 text-darkest font-semibold py-3.5 px-6 rounded-xl transition-all duration-300 neon-glow-blue flex items-center justify-center gap-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>Add to Portfolio</button>
+                    </div>
+                    <div id="holdingsSection" class="mt-6 hidden">
+                        <div class="flex items-center justify-between mb-3"><h3 class="text-sm font-semibold text-cream uppercase tracking-wider">Your Holdings</h3><span id="holdingsCount" class="text-xs px-2 py-1 bg-primary/20 text-primary rounded-full border border-primary/40">0</span></div>
+                        <div id="holdingsList" class="space-y-2 max-h-64 overflow-y-auto pr-2"></div>
+                    </div>
+                </div>
+
+                <!-- Configuration Card -->
+                <div class="glass-purple rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift">
+                    <div class="flex items-center gap-3 mb-6 pb-4 border-b border-secondary/30">
+                        <div class="w-10 h-10 bg-secondary/20 rounded-xl flex items-center justify-center neon-border-purple"><svg class="w-6 h-6 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg></div>
+                        <h2 class="text-xl sm:text-2xl font-bold text-secondary">Configuration</h2>
+                    </div>
+                    <div class="space-y-4">
+                        <div><label class="block text-sm font-medium text-cream mb-2">Benchmark Index</label><input type="text" id="benchmark" value="^NSEI" class="w-full px-4 py-3 bg-darkest/60 rounded-xl border border-secondary/30 text-white placeholder-muted focus:outline-none focus:border-secondary transition-all"></div>
+                        <div><label class="block text-sm font-medium text-cream mb-2">Start Date</label><input type="date" id="startDate" value="2018-01-01" class="w-full px-4 py-3 bg-darkest/60 rounded-xl border border-secondary/30 text-white focus:outline-none focus:border-secondary transition-all"></div>
+                        <div><label class="block text-sm font-medium text-cream mb-2">Risk-Free Rate (%)</label><input type="number" id="riskFreeRate" value="6.5" step="0.1" class="w-full px-4 py-3 bg-darkest/60 rounded-xl border border-secondary/30 text-white placeholder-muted focus:outline-none focus:border-secondary transition-all"></div>
+                    </div>
+                    <div class="mt-8 space-y-3 no-print">
+                        <button id="analyzeBtn" onclick="analyzePortfolio()" class="w-full bg-gradient-to-r from-primary to-secondary hover:from-primary/80 hover:to-secondary/80 text-darkest font-semibold py-3.5 px-6 rounded-xl transition-all duration-300 neon-glow-blue flex items-center justify-center gap-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>Analyze Portfolio</button>
+                        <button id="optimizeBtn" onclick="optimizePortfolio()" class="w-full bg-gradient-to-r from-secondary to-cream hover:from-secondary/80 hover:to-cream/80 text-darkest font-semibold py-3.5 px-6 rounded-xl transition-all duration-300 neon-glow-purple flex items-center justify-center gap-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>Optimize Portfolio</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analysis Tab -->
+        <div id="analysisContent" class="tab-content hidden">
+            <div class="space-y-6">
+                <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl sm:text-2xl font-bold flex items-center gap-3"><span class="w-2 h-8 bg-gradient-to-b from-primary to-secondary rounded-full neon-glow-blue"></span>Performance Comparison</h2>
+                        <button onclick="window.print()" class="no-print px-4 py-2 bg-primary/20 hover:bg-primary/30 border border-primary/40 text-primary rounded-lg text-sm font-semibold transition-all"><svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>Print</button>
+                    </div>
+                    <div class="h-64 sm:h-80 lg:h-96"><canvas id="performanceChart"></canvas></div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift">
+                        <div class="flex items-center gap-3 mb-6"><div class="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center neon-glow-blue"><svg class="w-7 h-7 text-darkest" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg></div><h3 class="text-xl font-bold text-primary">Your Portfolio</h3></div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="glass rounded-xl p-4 metric-glow border border-primary/20"><p class="text-xs text-muted uppercase tracking-wider mb-1">CAGR</p><p id="portCagr" class="text-2xl font-bold text-primary">-</p></div>
+                            <div class="glass rounded-xl p-4 metric-glow border border-primary/20"><p class="text-xs text-muted uppercase tracking-wider mb-1">Volatility</p><p id="portVol" class="text-2xl font-bold text-secondary">-</p></div>
+                            <div class="glass rounded-xl p-4 metric-glow border border-primary/20"><p class="text-xs text-muted uppercase tracking-wider mb-1">Sharpe Ratio</p><p id="portSharpe" class="text-2xl font-bold text-cream">-</p></div>
+                            <div class="glass rounded-xl p-4 metric-glow border border-primary/20"><p class="text-xs text-muted uppercase tracking-wider mb-1">Max Drawdown</p><p id="portDrawdown" class="text-2xl font-bold text-secondary">-</p></div>
+                        </div>
+                    </div>
+                    <div class="glass-purple rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift">
+                        <div class="flex items-center gap-3 mb-6"><div class="w-12 h-12 bg-gradient-to-br from-secondary to-cream rounded-xl flex items-center justify-center neon-glow-purple"><svg class="w-7 h-7 text-darkest" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg></div><h3 class="text-xl font-bold text-secondary">Benchmark (<span id="benchName">-</span>)</h3></div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="glass rounded-xl p-4 border border-secondary/20"><p class="text-xs text-muted uppercase tracking-wider mb-1">CAGR</p><p id="benchCagr" class="text-2xl font-bold text-primary">-</p></div>
+                            <div class="glass rounded-xl p-4 border border-secondary/20"><p class="text-xs text-muted uppercase tracking-wider mb-1">Volatility</p><p id="benchVol" class="text-2xl font-bold text-secondary">-</p></div>
+                            <div class="glass rounded-xl p-4 border border-secondary/20"><p class="text-xs text-muted uppercase tracking-wider mb-1">Sharpe Ratio</p><p id="benchSharpe" class="text-2xl font-bold text-cream">-</p></div>
+                            <div class="glass rounded-xl p-4 border border-secondary/20"><p class="text-xs text-muted uppercase tracking-wider mb-1">Max Drawdown</p><p id="benchDrawdown" class="text-2xl font-bold text-secondary">-</p></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Optimization Tab -->
+        <div id="optimizationContent" class="tab-content hidden">
+            <div class="space-y-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 glass-strong rounded-2xl p-6 neon-glow-blue"><div><h2 class="text-2xl font-bold text-primary mb-2">Monte Carlo Simulation</h2><p class="text-muted text-sm">Efficient Frontier - 10,000 portfolio simulations</p></div></div>
+                <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="h-96 sm:h-[500px] lg:h-[600px]"><canvas id="frontierChart"></canvas></div></div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="glass-strong rounded-xl p-6 neon-border-blue"><div class="flex items-center justify-between mb-2"><span class="text-muted text-sm">Simulations</span><span class="text-primary font-mono text-2xl font-bold" id="simCount">-</span></div><div class="h-1 bg-darkest rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-primary to-secondary w-full neon-glow-blue"></div></div></div>
+                    <div class="glass-strong rounded-xl p-6 neon-border-blue"><div class="flex items-center justify-between mb-2"><span class="text-muted text-sm">Max Sharpe Ratio</span><span class="text-cream font-mono text-2xl font-bold" id="maxSharpeValue">-</span></div><div class="h-1 bg-darkest rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-cream to-primary w-3/4"></div></div></div>
+                    <div class="glass-strong rounded-xl p-6 neon-border-purple"><div class="flex items-center justify-between mb-2"><span class="text-muted text-sm">Min Volatility</span><span class="text-secondary font-mono text-2xl font-bold" id="minVolValue">-</span></div><div class="h-1 bg-darkest rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-secondary to-cream w-2/3"></div></div></div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift neon-border-blue bg-gradient-to-br from-primary/5 to-transparent">
+                        <div class="flex items-center gap-3 mb-6"><div class="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center neon-glow-blue"><svg class="w-7 h-7 text-darkest" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path></svg></div><h3 class="text-xl font-bold text-primary">Maximum Sharpe Ratio</h3></div>
+                        <div class="space-y-4 mb-6">
+                            <div class="glass rounded-xl p-4 border border-primary/30"><p class="text-xs text-muted uppercase tracking-wider mb-1">Expected Return</p><p id="optReturn" class="text-2xl font-bold text-primary">-</p></div>
+                            <div class="glass rounded-xl p-4 border border-primary/30"><p class="text-xs text-muted uppercase tracking-wider mb-1">Volatility</p><p id="optVol" class="text-2xl font-bold text-secondary">-</p></div>
+                            <div class="glass rounded-xl p-4 border border-primary/30"><p class="text-xs text-muted uppercase tracking-wider mb-1">Sharpe Ratio</p><p id="optSharpe" class="text-2xl font-bold text-cream">-</p></div>
+                        </div>
+                        <div class="glass rounded-xl p-4 border border-primary/30"><h4 class="text-sm font-semibold text-cream mb-3 uppercase tracking-wider">Asset Allocation</h4><div id="optWeights" class="space-y-2"></div></div>
+                    </div>
+                    <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift neon-border-purple bg-gradient-to-br from-secondary/5 to-transparent">
+                        <div class="flex items-center gap-3 mb-6"><div class="w-12 h-12 bg-gradient-to-br from-secondary to-cream rounded-xl flex items-center justify-center neon-glow-purple"><svg class="w-7 h-7 text-darkest" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg></div><h3 class="text-xl font-bold text-secondary">Minimum Volatility</h3></div>
+                        <div class="space-y-4 mb-6">
+                            <div class="glass rounded-xl p-4 border border-secondary/30"><p class="text-xs text-muted uppercase tracking-wider mb-1">Expected Return</p><p id="minReturn" class="text-2xl font-bold text-primary">-</p></div>
+                            <div class="glass rounded-xl p-4 border border-secondary/30"><p class="text-xs text-muted uppercase tracking-wider mb-1">Volatility</p><p id="minVol" class="text-2xl font-bold text-secondary">-</p></div>
+                            <div class="glass rounded-xl p-4 border border-secondary/30"><p class="text-xs text-muted uppercase tracking-wider mb-1">Sharpe Ratio</p><p id="minSharpe" class="text-2xl font-bold text-cream">-</p></div>
+                        </div>
+                        <div class="glass rounded-xl p-4 border border-secondary/30"><h4 class="text-sm font-semibold text-cream mb-3 uppercase tracking-wider">Asset Allocation</h4><div id="minWeights" class="space-y-2"></div></div>
+                    </div>
+                </div>
+                <div class="glass-strong rounded-xl p-6 neon-border-blue"><h4 class="text-xs font-mono text-primary mb-3 uppercase tracking-wider">Distribution Insight</h4><p class="text-sm text-cream leading-relaxed">The scatter plot visualizes 10,000 simulated portfolios in the risk-return space. The <span class="text-primary font-semibold">terracotta star</span> marks the maximum Sharpe ratio portfolio, while the <span class="text-secondary font-semibold">tan star</span> indicates minimum volatility. Points are color-coded by Sharpe ratio.</p></div>
+            </div>
+        </div>
+
+        <!-- Interactive Charts Tab -->
+        <div id="riskContent" class="tab-content hidden">
+            <div class="space-y-6">
+                <div class="glass-strong rounded-2xl sm:rounded-3xl p-4 sm:p-6">
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                        <div class="flex items-center gap-3"><div class="w-10 h-10 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center"><svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg></div><h2 class="text-xl font-bold text-primary">Interactive Charts</h2></div>
+                        <div class="flex flex-wrap gap-2 ml-auto">
+                            <input type="text" id="chartTicker" placeholder="Ticker (e.g. AAPL)" class="glass rounded-lg px-3 py-2 text-sm text-white border border-primary/30 focus:border-primary focus:outline-none w-36" value="">
+                            <select id="chartPeriod" class="glass rounded-lg px-3 py-2 text-sm text-white border border-primary/30 focus:border-primary focus:outline-none bg-transparent"><option value="3mo" class="bg-dark">3 Months</option><option value="6mo" selected class="bg-dark">6 Months</option><option value="1y" class="bg-dark">1 Year</option><option value="2y" class="bg-dark">2 Years</option><option value="5y" class="bg-dark">5 Years</option></select>
+                        </div>
+                    </div>
+                </div>
+                <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="flex items-center justify-between mb-4"><div class="flex items-center gap-3"><div class="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center"><svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg></div><h3 class="text-lg font-bold text-green-400">Candlestick &amp; Volume</h3></div><button onclick="loadCandlestickChart()" class="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg text-sm font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all">Load Chart</button></div><div id="candlestickChart" style="width:100%;height:500px;" class="rounded-xl"></div><p id="candlestickStatus" class="text-xs text-muted mt-2 text-center">Enter a ticker and click Load Chart</p></div>
+                <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="flex items-center justify-between mb-4"><div class="flex items-center gap-3"><div class="w-10 h-10 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center"><svg class="w-6 h-6 text-darkest" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg></div><h3 class="text-lg font-bold text-primary">Technical Indicators</h3><span class="text-xs text-muted">RSI | MACD | Bollinger</span></div><button onclick="loadTechnicalIndicators()" class="px-4 py-2 bg-gradient-to-r from-primary to-secondary text-darkest rounded-lg text-sm font-semibold hover:shadow-lg hover:shadow-primary/25 transition-all">Analyze</button></div><div id="bollingerChart" style="width:100%;height:350px;" class="rounded-xl"></div><div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4"><div id="rsiChart" style="width:100%;height:200px;" class="rounded-xl"></div><div id="macdChart" style="width:100%;height:200px;" class="rounded-xl"></div></div><p id="technicalStatus" class="text-xs text-muted mt-2 text-center">Enter a ticker and click Analyze</p></div>
+                <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="flex items-center justify-between mb-4"><div class="flex items-center gap-3"><div class="w-10 h-10 bg-gradient-to-br from-secondary to-cream rounded-xl flex items-center justify-center"><svg class="w-6 h-6 text-darkest" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg></div><h3 class="text-lg font-bold text-secondary">Time Series Decomposition</h3><span class="text-xs text-muted">Trend | Seasonality | Residuals</span></div><button onclick="loadTimeSeriesDecomposition()" class="px-4 py-2 bg-gradient-to-r from-secondary to-cream text-darkest rounded-lg text-sm font-semibold hover:shadow-lg hover:shadow-secondary/25 transition-all">Decompose</button></div><div id="decompositionChart" style="width:100%;height:600px;" class="rounded-xl"></div><p id="decompositionStatus" class="text-xs text-muted mt-2 text-center">Enter a ticker and click Decompose</p></div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="flex items-center justify-between mb-4"><div class="flex items-center gap-3"><div class="w-10 h-10 bg-gradient-to-br from-red-500 to-orange-500 rounded-xl flex items-center justify-center"><svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"></path></svg></div><h3 class="text-lg font-bold text-red-400">Drawdown Chart</h3></div><button onclick="loadDrawdownChart()" class="px-4 py-2 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg text-sm font-semibold hover:shadow-lg hover:shadow-red-500/25 transition-all">Load</button></div><div id="drawdownChart" style="width:100%;height:350px;" class="rounded-xl"></div><div id="drawdownStats" class="mt-3 hidden"><div class="glass rounded-xl p-3 border border-red-500/20"><p class="text-xs text-muted">Max Drawdown</p><p id="maxDrawdownVal" class="text-xl font-bold text-red-500">-</p><p id="maxDrawdownDate" class="text-xs text-muted">-</p></div></div><p id="drawdownStatus" class="text-xs text-muted mt-2 text-center">Uses portfolio holdings</p></div>
+                    <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="flex items-center justify-between mb-4"><div class="flex items-center gap-3"><div class="w-10 h-10 bg-gradient-to-br from-yellow-500 to-amber-500 rounded-xl flex items-center justify-center"><svg class="w-6 h-6 text-darkest" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"></path></svg></div><h3 class="text-lg font-bold text-yellow-400">Risk Contribution</h3></div><button onclick="loadRiskContribution()" class="px-4 py-2 bg-gradient-to-r from-yellow-500 to-amber-500 text-darkest rounded-lg text-sm font-semibold hover:shadow-lg hover:shadow-yellow-500/25 transition-all">Analyze</button></div><div id="riskContributionChart" style="width:100%;height:350px;" class="rounded-xl"></div><div id="riskContribTable" class="mt-3 overflow-x-auto"></div><p id="riskContribStatus" class="text-xs text-muted mt-2 text-center">Needs 2+ holdings</p></div>
+                </div>
+                <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="flex items-center justify-between mb-4"><div class="flex items-center gap-3"><div class="w-10 h-10 bg-gradient-to-br from-primary to-cream rounded-xl flex items-center justify-center"><svg class="w-6 h-6 text-darkest" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"></path></svg></div><h3 class="text-lg font-bold text-primary">3D Efficient Frontier</h3><span class="text-xs text-muted">Risk vs Return vs Sharpe</span></div><button onclick="loadEfficientFrontier3D()" class="px-4 py-2 bg-gradient-to-r from-primary to-cream text-darkest rounded-lg text-sm font-semibold hover:shadow-lg hover:shadow-primary/25 transition-all">Generate 3D Surface</button></div><div id="frontier3dChart" style="width:100%;height:550px;" class="rounded-xl"></div><p id="frontier3dStatus" class="text-xs text-muted mt-2 text-center">Needs 2+ holdings</p></div>
+            </div>
+        </div>
+
+        <!-- Market Intel Tab -->
+        <div id="intelContent" class="tab-content hidden space-y-6">
+            <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="flex items-center gap-3 mb-6"><div class="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center neon-glow-blue"><svg class="w-7 h-7 text-darkest" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg></div><h2 class="text-2xl font-bold text-primary">Sector Exposure</h2></div><div class="h-80 sm:h-96"><canvas id="sectorChart"></canvas></div></div>
+            <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="flex items-center gap-3 mb-6"><div class="w-12 h-12 bg-gradient-to-br from-secondary to-cream rounded-xl flex items-center justify-center neon-glow-purple"><svg class="w-7 h-7 text-darkest" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v4m3-6H9M19 10h-4m0 0V6m0 4v4m-5 10h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"></path></svg></div><h2 class="text-2xl font-bold text-secondary">Latest News</h2></div><ul id="newsList" class="space-y-3 max-h-96 overflow-y-auto pr-2"></ul></div>
+            <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="flex items-center gap-3 mb-6"><div class="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center"><svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div><h2 class="text-2xl font-bold text-green-400">Dividend Tracking</h2></div><div id="dividendContent"><div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4"><div class="glass rounded-xl p-4 border border-green-500/20"><p class="text-xs text-muted uppercase tracking-wider mb-2">Dividend Yield</p><p id="divYield" class="text-2xl font-bold text-green-400">-</p></div><div class="glass rounded-xl p-4 border border-green-500/20"><p class="text-xs text-muted uppercase tracking-wider mb-2">Tracking</p><p id="divTicker" class="text-2xl font-bold text-green-400">-</p></div></div><h3 class="text-sm font-semibold text-muted mb-3 uppercase tracking-wider">Payout History</h3><div id="divHistory" class="space-y-2 max-h-64 overflow-y-auto pr-2"><p class="text-muted text-sm">Add holdings and analyze to view dividend data</p></div></div></div>
+            <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="flex items-center gap-3 mb-6"><div class="w-12 h-12 bg-gradient-to-br from-yellow-500 to-amber-600 rounded-xl flex items-center justify-center"><svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div><h2 class="text-2xl font-bold text-yellow-400">Economic Indicators</h2></div><div id="econContent"><div class="mb-4"><h3 class="text-sm font-semibold text-muted mb-3 uppercase tracking-wider">Interest Rates / Treasury Yields</h3><div id="treasuryData" class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="glass rounded-xl p-4 border border-yellow-500/20 text-center"><p class="text-muted text-sm">Loading...</p></div></div></div><div><h3 class="text-sm font-semibold text-muted mb-3 uppercase tracking-wider">Market Indices</h3><div id="marketData" class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="glass rounded-xl p-4 border border-yellow-500/20 text-center"><p class="text-muted text-sm">Loading...</p></div></div></div></div></div>
+            <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="flex items-center gap-3 mb-6"><div class="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center"><svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div><h2 class="text-2xl font-bold text-primary">Market Sentiment</h2></div><div id="sentimentContent"><div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4"><div class="glass rounded-xl p-4 border border-primary/20 text-center"><p class="text-xs text-muted uppercase tracking-wider mb-2">Overall Sentiment</p><p id="sentimentScore" class="text-3xl font-bold text-primary">-</p><p id="sentimentLabel" class="text-sm text-muted mt-1">-</p></div><div class="glass rounded-xl p-4 border border-green-500/20 text-center"><p class="text-xs text-muted uppercase tracking-wider mb-2">Positive</p><p id="sentimentPos" class="text-2xl font-bold text-green-400">-</p></div><div class="glass rounded-xl p-4 border border-red-500/20 text-center"><p class="text-xs text-muted uppercase tracking-wider mb-2">Negative</p><p id="sentimentNeg" class="text-2xl font-bold text-red-400">-</p></div></div><h3 class="text-sm font-semibold text-muted mb-3 uppercase tracking-wider">Headlines Analyzed</h3><ul id="sentimentHeadlines" class="space-y-2 max-h-64 overflow-y-auto pr-2"><li class="text-muted text-sm">Add holdings and analyze to view sentiment data</li></ul></div></div>
+        </div>
+
+        <!-- Live Tab -->
+        <div id="liveContent" class="tab-content hidden space-y-6">
+            <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="flex items-center justify-between mb-6"><div class="flex items-center gap-3"><div class="w-12 h-12 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center"><svg class="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle></svg></div><h2 class="text-2xl font-bold text-red-500">Live Prices</h2></div><button onclick="refreshLivePrices()" class="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-500 rounded-lg text-sm font-semibold transition-all"><svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>Refresh</button></div><ul id="livePrices" class="space-y-2 max-h-96 overflow-y-auto pr-2 font-mono text-sm"></ul></div>
+            <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><div class="flex items-center gap-3 mb-6"><div class="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center neon-glow-blue"><svg class="w-7 h-7 text-darkest" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg></div><h2 class="text-2xl font-bold text-primary">Market Status</h2></div><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div class="glass rounded-xl p-4 border border-primary/20"><p class="text-xs text-muted uppercase tracking-wider mb-2">Portfolio Value</p><p id="portfolioValue" class="text-2xl font-bold text-primary">$0.00</p><p class="text-xs text-muted mt-1">Total holdings value</p></div><div class="glass rounded-xl p-4 border border-primary/20"><p class="text-xs text-muted uppercase tracking-wider mb-2">24h Change</p><p id="dailyChange" class="text-2xl font-bold text-primary">-</p><p class="text-xs text-muted mt-1">Intraday performance</p></div></div></div>
+        </div>
+
+        <!-- Retire Tab -->
+        <div id="retireContent" class="tab-content hidden space-y-6">
+            <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift">
+                <div class="flex items-center gap-3 mb-6"><div class="w-12 h-12 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center"><svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg></div><div><h2 class="text-2xl font-bold text-amber-400">Retirement Planner</h2><p class="text-sm text-muted">Monte Carlo simulation-powered retirement analysis</p></div></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                    <div><label class="block text-xs text-muted uppercase tracking-wider mb-1">Current Age</label><input type="number" id="retireAge" value="30" min="18" max="80" class="w-full glass rounded-lg px-4 py-3 text-white border border-amber-500/30 focus:border-amber-400 focus:outline-none"></div>
+                    <div><label class="block text-xs text-muted uppercase tracking-wider mb-1">Retirement Age</label><input type="number" id="retireTargetAge" value="60" min="30" max="90" class="w-full glass rounded-lg px-4 py-3 text-white border border-amber-500/30 focus:border-amber-400 focus:outline-none"></div>
+                    <div><label class="block text-xs text-muted uppercase tracking-wider mb-1">Life Expectancy</label><input type="number" id="retireLifeExpect" value="85" min="60" max="110" class="w-full glass rounded-lg px-4 py-3 text-white border border-amber-500/30 focus:border-amber-400 focus:outline-none"></div>
+                    <div><label class="block text-xs text-muted uppercase tracking-wider mb-1">Current Savings ($)</label><input type="number" id="retireSavings" value="50000" min="0" step="1000" class="w-full glass rounded-lg px-4 py-3 text-white border border-amber-500/30 focus:border-amber-400 focus:outline-none"></div>
+                    <div><label class="block text-xs text-muted uppercase tracking-wider mb-1">Monthly Contribution ($)</label><input type="number" id="retireContribution" value="1000" min="0" step="100" class="w-full glass rounded-lg px-4 py-3 text-white border border-amber-500/30 focus:border-amber-400 focus:outline-none"></div>
+                    <div><label class="block text-xs text-muted uppercase tracking-wider mb-1">Annual Spending in Retirement ($)</label><input type="number" id="retireSpending" value="60000" min="0" step="1000" class="w-full glass rounded-lg px-4 py-3 text-white border border-amber-500/30 focus:border-amber-400 focus:outline-none"></div>
+                    <div><label class="block text-xs text-muted uppercase tracking-wider mb-1">Target Nest Egg ($, 0 = auto)</label><input type="number" id="retireTarget" value="0" min="0" step="10000" class="w-full glass rounded-lg px-4 py-3 text-white border border-amber-500/30 focus:border-amber-400 focus:outline-none"></div>
+                    <div><label class="block text-xs text-muted uppercase tracking-wider mb-1">Inflation Rate (%)</label><input type="number" id="retireInflation" value="3" min="0" max="15" step="0.5" class="w-full glass rounded-lg px-4 py-3 text-white border border-amber-500/30 focus:border-amber-400 focus:outline-none"></div>
+                    <div><label class="block text-xs text-muted uppercase tracking-wider mb-1">Risk Tolerance</label><select id="retireRisk" class="w-full glass rounded-lg px-4 py-3 text-white border border-amber-500/30 focus:border-amber-400 focus:outline-none bg-transparent"><option value="conservative" class="bg-dark">Conservative</option><option value="moderate" selected class="bg-dark">Moderate</option><option value="aggressive" class="bg-dark">Aggressive</option></select></div>
+                </div>
+                <button onclick="calculateRetirement()" class="w-full bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold py-4 rounded-xl hover:shadow-lg hover:shadow-amber-500/25 transition-all duration-300 text-lg">Run Retirement Simulation</button>
+            </div>
+            <div id="retireResults" class="hidden space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="glass-strong rounded-2xl p-6 hover-lift border border-amber-500/20"><p class="text-xs text-muted uppercase tracking-wider mb-2">Success Probability</p><p id="retireSuccess" class="text-3xl font-bold text-amber-400">-</p><p class="text-xs text-muted mt-1">of reaching your target</p></div>
+                    <div class="glass-strong rounded-2xl p-6 hover-lift border border-primary/20"><p class="text-xs text-muted uppercase tracking-wider mb-2">Median Outcome</p><p id="retireMedian" class="text-3xl font-bold text-primary">-</p><p class="text-xs text-muted mt-1">50th percentile</p></div>
+                    <div class="glass-strong rounded-2xl p-6 hover-lift border border-green-500/20"><p class="text-xs text-muted uppercase tracking-wider mb-2">Sustainability</p><p id="retireSustain" class="text-3xl font-bold text-green-400">-</p><p class="text-xs text-muted mt-1">money lasting probability</p></div>
+                    <div class="glass-strong rounded-2xl p-6 hover-lift border border-secondary/20"><p class="text-xs text-muted uppercase tracking-wider mb-2">Safe Annual Income</p><p id="retireIncome" class="text-3xl font-bold text-secondary">-</p><p class="text-xs text-muted mt-1" id="retireSWR">-</p></div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="lg:col-span-2 glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><h3 class="text-lg font-bold text-amber-400 mb-4">Probability Cone (5,000 simulations)</h3><div class="h-80 sm:h-96"><canvas id="retireConeChart"></canvas></div></div>
+                    <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><h3 class="text-lg font-bold text-amber-400 mb-4">Portfolio Allocation</h3><div class="h-56"><canvas id="retireAllocChart"></canvas></div><div id="retireAllocDetails" class="mt-4 space-y-2"></div></div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift">
+                        <h3 class="text-lg font-bold text-primary mb-4">Outcome Range</h3>
+                        <div class="space-y-3">
+                            <div class="flex justify-between items-center"><span class="text-sm text-muted">Best Case (90th %ile)</span><span id="retireP90" class="font-bold text-green-400">-</span></div><div class="w-full bg-dark rounded-full h-2"><div id="retireP90Bar" class="h-2 rounded-full bg-gradient-to-r from-green-500 to-emerald-400" style="width:90%"></div></div>
+                            <div class="flex justify-between items-center"><span class="text-sm text-muted">Above Average (75th %ile)</span><span id="retireP75" class="font-bold text-primary">-</span></div><div class="w-full bg-dark rounded-full h-2"><div id="retireP75Bar" class="h-2 rounded-full bg-gradient-to-r from-primary to-secondary" style="width:75%"></div></div>
+                            <div class="flex justify-between items-center"><span class="text-sm text-muted">Median (50th %ile)</span><span id="retireP50" class="font-bold text-amber-400">-</span></div><div class="w-full bg-dark rounded-full h-2"><div id="retireP50Bar" class="h-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-400" style="width:50%"></div></div>
+                            <div class="flex justify-between items-center"><span class="text-sm text-muted">Below Average (25th %ile)</span><span id="retireP25" class="font-bold text-orange-400">-</span></div><div class="w-full bg-dark rounded-full h-2"><div id="retireP25Bar" class="h-2 rounded-full bg-gradient-to-r from-orange-500 to-red-400" style="width:25%"></div></div>
+                            <div class="flex justify-between items-center"><span class="text-sm text-muted">Worst Case (10th %ile)</span><span id="retireP10" class="font-bold text-red-400">-</span></div><div class="w-full bg-dark rounded-full h-2"><div id="retireP10Bar" class="h-2 rounded-full bg-gradient-to-r from-red-600 to-red-400" style="width:10%"></div></div>
+                        </div>
+                        <div class="mt-6 glass rounded-xl p-4 border border-amber-500/20"><div class="flex justify-between items-center"><span class="text-sm text-muted">Target Amount</span><span id="retireTargetDisplay" class="font-bold text-amber-400">-</span></div></div>
+                    </div>
+                    <div class="glass-strong rounded-2xl sm:rounded-3xl p-6 sm:p-8 hover-lift"><h3 class="text-lg font-bold text-green-400 mb-4">Recommendations</h3><ul id="retireRecommendations" class="space-y-3"></ul></div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="mt-12 text-center text-muted text-sm no-print"><p class="text-muted"></p></footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
