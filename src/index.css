@@ -1,0 +1,127 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #21262d transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: #21262d;
+    border-radius: 3px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+  }
+
+  ::selection {
+    background: rgba(201, 152, 90, 0.3);
+    color: #f6f8fa;
+  }
+
+  body {
+    overflow-x: hidden;
+  }
+
+  /* Tabular numbers for financial data */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .grain-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.4;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    mix-blend-mode: overlay;
+  }
+
+  .card-glow {
+    box-shadow: 0 0 0 1px rgba(201, 152, 90, 0.06);
+    transition: box-shadow 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                border-color 0.4s ease;
+  }
+
+  .card-glow:hover {
+    box-shadow: 0 0 0 1px rgba(201, 152, 90, 0.25),
+                0 8px 32px rgba(0, 0, 0, 0.35),
+                0 2px 8px rgba(201, 152, 90, 0.06);
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(135deg, #c9985a 0%, #e8cfa0 50%, #c9985a 100%);
+    background-size: 200% 200%;
+    animation: shimmerGradient 6s ease-in-out infinite;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .border-subtle {
+    border-color: rgba(33, 38, 45, 0.8);
+  }
+
+  .bg-glass {
+    background: rgba(22, 27, 34, 0.6);
+    backdrop-filter: blur(12px);
+  }
+}
+
+/* Shimmer for brand text */
+@keyframes shimmerGradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Smooth focus rings for all interactive elements */
+input:focus, select:focus, textarea:focus {
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Table row hover glow */
+tr {
+  transition: background-color 0.2s ease;
+}
+
+/* Smooth scrolling */
+main {
+  scroll-behavior: smooth;
+}
+
+/* Light mode overrides */
+html:not(.dark) body {
+  background: #f6f8fa;
+  color: #1f2328;
+}
+
+html:not(.dark) .grain-overlay {
+  display: none;
+}
+
+html:not(.dark) *::-webkit-scrollbar-thumb {
+  background: #d0d7de;
+}
+
+html:not(.dark) ::selection {
+  background: rgba(154, 112, 53, 0.2);
+  color: #1f2328;
+}

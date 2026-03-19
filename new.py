@@ -12,14 +12,26 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 from flask_socketio import SocketIO
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
-        
+
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Configuration
 NEWS_API_KEY = os.environ.get('NEWS_API_KEY', None)  # Get from environment variable
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', None)
+
+# Configure Gemini if API key is available
+genai = None
+if GEMINI_API_KEY:
+    try:
+        import google.generativeai as _genai
+        _genai.configure(api_key=GEMINI_API_KEY)
+        genai = _genai
+    except ImportError:
+        print("Warning: google-generativeai not installed. AI agent will not be available.")
 
 @socketio.on('subscribe_prices')
 def stream_prices(data):
@@ -1553,8 +1565,239 @@ def risk_contribution():
         return jsonify({'error': str(e)}), 500
 
 
+# ── Live Analysis Endpoint ──────────────────────────────────────────
+def _fetch_ticker_live_data(t):
+    """Fetch enriched live data for a single ticker."""
+    try:
+        stock = yf.Ticker(t)
+        info = stock.info or {}
+
+        # Price data
+        price = info.get('currentPrice') or info.get('regularMarketPrice') or info.get('previousClose', 0)
+        prev_close = info.get('previousClose') or info.get('regularMarketPreviousClose', 0)
+        change = ((price - prev_close) / prev_close * 100) if prev_close else 0
+        currency = info.get('currency', 'INR')
+
+        # Mini chart data (5 day hourly)
+        hist = stock.history(period='5d', interval='1h')
+        mini_chart = []
+        if not hist.empty:
+            for idx, row in hist.iterrows():
+                mini_chart.append({
+                    'time': idx.strftime('%Y-%m-%d %H:%M'),
+                    'price': round(float(row['Close']), 2)
+                })
+
+        # News headlines
+        news_items = stock.news or []
+        headlines = []
+        for item in news_items[:3]:
+            content = item.get('content', item)
+            headlines.append({
+                'title': content.get('title', 'No title'),
+                'url': content.get('canonicalUrl', {}).get('url', '') if isinstance(content.get('canonicalUrl'), dict) else content.get('link', ''),
+                'source': content.get('provider', {}).get('displayName', '') if isinstance(content.get('provider'), dict) else content.get('source', ''),
+            })
+
+        # Simple sentiment from headlines
+        sentiment_score = 0.0
+        if headlines:
+            positive_words = {'up', 'gain', 'rise', 'bull', 'high', 'growth', 'profit', 'surge', 'rally', 'beat', 'strong', 'buy', 'upgrade', 'record', 'soar'}
+            negative_words = {'down', 'loss', 'fall', 'bear', 'low', 'decline', 'crash', 'drop', 'sell', 'cut', 'weak', 'risk', 'fear', 'miss', 'slump'}
+            scores = []
+            for h in headlines:
+                words = set(h['title'].lower().split())
+                pos = len(words & positive_words)
+                neg = len(words & negative_words)
+                if pos + neg > 0:
+                    scores.append((pos - neg) / (pos + neg))
+                else:
+                    scores.append(0.0)
+            sentiment_score = float(np.mean(scores)) if scores else 0.0
+
+        return t, {
+            'price': round(float(price), 2),
+            'previousClose': round(float(prev_close), 2),
+            'change': round(float(change), 2),
+            'currency': currency,
+            'miniChart': mini_chart,
+            'sentiment': round(sentiment_score, 3),
+            'headlines': headlines,
+        }
+    except Exception as e:
+        return t, {
+            'price': 0, 'previousClose': 0, 'change': 0,
+            'currency': 'INR', 'miniChart': [], 'sentiment': 0, 'headlines': [],
+            'error': str(e)
+        }
+
+
+@app.route('/api/live-analysis', methods=['POST'])
+def live_analysis():
+    try:
+        data = request.json
+        tickers = data.get('tickers', [])
+        if not tickers:
+            return jsonify({'error': 'No tickers provided'}), 400
+
+        valid, error = validate_tickers(tickers)
+        if not valid:
+            return jsonify({'error': error}), 400
+
+        result = {}
+        with ThreadPoolExecutor(max_workers=min(len(tickers), 8)) as executor:
+            futures = {executor.submit(_fetch_ticker_live_data, t): t for t in tickers}
+            for future in as_completed(futures):
+                ticker, ticker_data = future.result()
+                result[ticker] = ticker_data
+
+        return jsonify({'data': result})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── AI Agent Endpoint ───────────────────────────────────────────────
+def _gather_stock_context(ticker):
+    """Gather comprehensive stock data for RAG context."""
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info or {}
+        context_parts = [f"\n=== {ticker} ({info.get('longName', ticker)}) ==="]
+
+        # Basic info
+        context_parts.append(f"Sector: {info.get('sector', 'N/A')}, Industry: {info.get('industry', 'N/A')}")
+        context_parts.append(f"Market Cap: {info.get('marketCap', 'N/A')}")
+        context_parts.append(f"Current Price: {info.get('currentPrice', info.get('regularMarketPrice', 'N/A'))}")
+        context_parts.append(f"52-Week High: {info.get('fiftyTwoWeekHigh', 'N/A')}, Low: {info.get('fiftyTwoWeekLow', 'N/A')}")
+        context_parts.append(f"PE Ratio (Trailing): {info.get('trailingPE', 'N/A')}, Forward PE: {info.get('forwardPE', 'N/A')}")
+        context_parts.append(f"Dividend Yield: {info.get('dividendYield', 'N/A')}")
+        context_parts.append(f"Beta: {info.get('beta', 'N/A')}")
+        context_parts.append(f"Analyst Target Price: {info.get('targetMeanPrice', 'N/A')}")
+        context_parts.append(f"Recommendation: {info.get('recommendationKey', 'N/A')}")
+        context_parts.append(f"Short Ratio: {info.get('shortRatio', 'N/A')}")
+        context_parts.append(f"Profit Margins: {info.get('profitMargins', 'N/A')}")
+        context_parts.append(f"Revenue Growth: {info.get('revenueGrowth', 'N/A')}")
+        context_parts.append(f"Earnings Growth: {info.get('earningsGrowth', 'N/A')}")
+
+        # Financials summary
+        try:
+            financials = stock.financials
+            if financials is not None and not financials.empty:
+                latest = financials.iloc[:, 0]
+                revenue = latest.get('Total Revenue', 'N/A')
+                net_income = latest.get('Net Income', 'N/A')
+                context_parts.append(f"Latest Revenue: {revenue}")
+                context_parts.append(f"Latest Net Income: {net_income}")
+        except Exception:
+            pass
+
+        # Analyst recommendations
+        try:
+            recs = stock.recommendations
+            if recs is not None and not recs.empty:
+                recent = recs.tail(5).to_string()
+                context_parts.append(f"Recent Analyst Recommendations:\n{recent}")
+        except Exception:
+            pass
+
+        # Recent news
+        try:
+            news_items = stock.news or []
+            if news_items:
+                context_parts.append("Recent News:")
+                for item in news_items[:5]:
+                    content = item.get('content', item)
+                    title = content.get('title', '')
+                    if title:
+                        context_parts.append(f"  - {title}")
+        except Exception:
+            pass
+
+        # 1Y performance
+        try:
+            hist = stock.history(period='1y')
+            if not hist.empty:
+                start_price = hist['Close'].iloc[0]
+                end_price = hist['Close'].iloc[-1]
+                one_year_return = ((end_price - start_price) / start_price) * 100
+                context_parts.append(f"1-Year Return: {one_year_return:.2f}%")
+        except Exception:
+            pass
+
+        return '\n'.join(context_parts)
+    except Exception as e:
+        return f"\n=== {ticker} === Error fetching data: {str(e)}"
+
+
+@app.route('/api/ai-agent', methods=['POST'])
+def ai_agent():
+    if not genai:
+        return jsonify({
+            'error': 'AI agent not configured. Install google-generativeai and set GEMINI_API_KEY environment variable.'
+        }), 503
+
+    try:
+        data = request.json
+        query = data.get('query', '').strip()
+        tickers = data.get('tickers', [])
+
+        if not query:
+            return jsonify({'error': 'No query provided'}), 400
+
+        # Gather RAG context from stock data
+        context_blocks = []
+        analyzed_tickers = []
+        if tickers:
+            valid_tickers = [t for t in tickers if t and isinstance(t, str)]
+            with ThreadPoolExecutor(max_workers=min(len(valid_tickers), 6)) as executor:
+                futures = {executor.submit(_gather_stock_context, t): t for t in valid_tickers}
+                for future in as_completed(futures):
+                    context_blocks.append(future.result())
+                    analyzed_tickers.append(futures[future])
+
+        context_str = '\n'.join(context_blocks) if context_blocks else 'No specific stock data requested.'
+
+        # Build the prompt
+        system_prompt = """You are Bloom AI, an expert financial research analyst integrated into the Bloom Analytics portfolio platform. You have access to real-time market data and financial information provided below.
+
+Your responsibilities:
+1. Provide well-researched, balanced financial analysis
+2. Consider both bullish and bearish perspectives
+3. Reference specific data points from the provided context
+4. Give clear, actionable insights while being transparent about uncertainties
+5. Format your response with clear sections using **bold** headers and bullet points
+
+IMPORTANT: Always include a brief disclaimer that your analysis is for informational purposes only and does not constitute financial advice."""
+
+        user_prompt = f"""MARKET DATA CONTEXT:
+{context_str}
+
+USER QUESTION: {query}
+
+Please provide a thorough, well-researched response based on the data above."""
+
+        # Call Gemini
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        response = model.generate_content(
+            [{'role': 'user', 'parts': [f"{system_prompt}\n\n{user_prompt}"]}],
+            generation_config={
+                'temperature': 0.7,
+                'max_output_tokens': 2048,
+            }
+        )
+
+        return jsonify({
+            'response': response.text,
+            'tickers_analyzed': analyzed_tickers,
+            'timestamp': datetime.now().isoformat(),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print("Starting Portfolio Optimizer Backend...")
     print("Server running on http://localhost:5000")
     print(f"News API configured: {NEWS_API_KEY is not None}")
+    print(f"Gemini AI configured: {genai is not None}")
     socketio.run(app, debug=True, port=5000, allow_unsafe_werkzeug=True)
