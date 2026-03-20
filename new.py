@@ -28,7 +28,7 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # Configuration
 NEWS_API_KEY = os.environ.get('NEWS_API_KEY', None)  # Get from environment variable
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', None)
-TIINGO_API_KEY = os.environ.get('TIINGO_API_KEY', None)
+TIINGO_API_KEY = None  # Tiingo removed — all data fetched via yfinance
 
 # Configure OpenAI if API key is available
 openai_client = None
@@ -44,21 +44,6 @@ def stream_prices(data):
     tickers = data['tickers']
     while True:
         try:
-            # Try Tiingo IEX first
-            if TIINGO_API_KEY:
-                iex_results = _tiingo_iex(tickers)
-                if iex_results:
-                    price_dict = {}
-                    for item in iex_results:
-                        t = item.get('ticker', '').upper()
-                        p = item.get('last', item.get('tngoLast', None))
-                        if t and p:
-                            price_dict[t] = float(p)
-                    if price_dict:
-                        socketio.emit('price_update', price_dict)
-                        socketio.sleep(10)
-                        continue
-            # Fallback to yfinance
             prices = yf.download(tickers, period='1d', interval='1m', progress=False)['Close'].iloc[-1]
             socketio.emit('price_update', prices.to_dict())
         except Exception as e:
@@ -148,23 +133,12 @@ def rolling_sharpe(returns, window=60, rf=0.0):
 def apply_scenario(returns, multiplier):
     return returns * multiplier
 
-# ── Tiingo Data Layer ─────────────────────────────────────────────────
+# ── Data Layer (yfinance) ─────────────────────────────────────────────
 _cache = {}  # Simple in-memory cache: key -> (data, timestamp)
 _CACHE_TTL = 300  # 5 minutes
 
 def _is_tiingo_supported(ticker):
-    """Check if ticker is supported by Tiingo (US exchanges only).
-    Tiingo does NOT support .NS (India), .L (London), ^indexes, etc."""
-    if not ticker:
-        return False
-    # Non-US suffixes Tiingo can't handle
-    non_us = ('.NS', '.BO', '.L', '.T', '.HK', '.SS', '.SZ', '.AX', '.TO', '.SA', '.KS', '.TW', '.DE', '.PA', '.MI')
-    if any(ticker.upper().endswith(s) for s in non_us):
-        return False
-    # Index tickers like ^NSEI, ^GSPC
-    if ticker.startswith('^'):
-        return False
-    return True
+    return False
 
 def _cache_get(key):
     if key in _cache:
@@ -177,110 +151,25 @@ def _cache_get(key):
 def _cache_set(key, data):
     _cache[key] = (data, _time.time())
 
-def _tiingo_headers():
-    return {'Content-Type': 'application/json', 'Authorization': f'Token {TIINGO_API_KEY}'}
-
 def _tiingo_daily(ticker, start, end):
-    """Fetch adjusted daily prices from Tiingo. Returns DataFrame with adjClose indexed by date."""
-    if not _is_tiingo_supported(ticker):
-        return None
-    cache_key = f'tiingo_daily_{ticker}_{start}_{end}'
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
-    try:
-        url = f'https://api.tiingo.com/tiingo/daily/{ticker}/prices'
-        params = {'startDate': start, 'endDate': end}
-        r = requests.get(url, headers=_tiingo_headers(), params=params, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-        if not data:
-            raise ValueError(f'No Tiingo data for {ticker}')
-        df = pd.DataFrame(data)
-        df['date'] = pd.to_datetime(df['date']).dt.tz_localize(None)
-        df = df.set_index('date')
-        _cache_set(cache_key, df)
-        return df
-    except Exception as e:
-        print(f'Tiingo daily failed for {ticker}: {e}, falling back to yfinance')
-        return None
+    return None
 
 def _tiingo_meta(ticker):
-    """Fetch company metadata from Tiingo."""
-    if not _is_tiingo_supported(ticker):
-        return {}
-    cache_key = f'tiingo_meta_{ticker}'
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
-    try:
-        r = requests.get(f'https://api.tiingo.com/tiingo/daily/{ticker}', headers=_tiingo_headers(), timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        _cache_set(cache_key, data)
-        return data
-    except Exception:
-        return {}
+    return {}
 
 def _tiingo_news(tickers, limit=20):
-    """Fetch news from Tiingo News API."""
-    # Filter to only Tiingo-supported tickers
-    supported = [t for t in tickers if _is_tiingo_supported(t)]
-    if not supported:
-        return []
-    tickers = supported
-    cache_key = f'tiingo_news_{"_".join(sorted(tickers))}_{limit}'
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
-    try:
-        csv = ','.join(tickers)
-        r = requests.get(f'https://api.tiingo.com/tiingo/news', headers=_tiingo_headers(),
-                         params={'tickers': csv, 'limit': limit}, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-        _cache_set(cache_key, data)
-        return data
-    except Exception:
-        return []
+    return []
 
 def _tiingo_iex(tickers):
-    """Fetch real-time IEX prices from Tiingo."""
-    # Filter to only Tiingo-supported tickers
-    supported = [t for t in tickers if _is_tiingo_supported(t)]
-    if not supported:
-        return []
-    tickers = supported
-    cache_key = f'tiingo_iex_{"_".join(sorted(tickers))}'
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
-    try:
-        csv = ','.join(tickers)
-        r = requests.get(f'https://api.tiingo.com/iex/', headers=_tiingo_headers(),
-                         params={'tickers': csv}, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        _cache_set(cache_key, data)
-        return data
-    except Exception:
-        return []
+    return []
 
 def _fetch_prices(tickers, start, end):
-    """Abstraction layer: tries Tiingo first, falls back to yfinance. Returns DataFrame of adjusted close prices."""
+    """Fetch adjusted close prices via yfinance. Returns DataFrame indexed by date."""
     if not isinstance(tickers, list):
         tickers = [tickers]
 
     all_data = {}
     for t in tickers:
-        # Try Tiingo first (only for US tickers)
-        if TIINGO_API_KEY and _is_tiingo_supported(t):
-            df = _tiingo_daily(t, start, end)
-            if df is not None and 'adjClose' in df.columns and len(df) > 0:
-                all_data[t] = df['adjClose']
-                continue
-
-        # Fallback to yfinance (or primary for non-US tickers)
         try:
             yf_data = yf.download(t, start=start, end=end, auto_adjust=True, progress=False)['Close']
             if isinstance(yf_data, pd.DataFrame):
@@ -300,17 +189,7 @@ def _fetch_prices(tickers, start, end):
     return df.dropna()
 
 def _fetch_ohlcv(ticker, start, end):
-    """Fetch OHLCV data, Tiingo first then yfinance fallback."""
-    if TIINGO_API_KEY and _is_tiingo_supported(ticker):
-        df = _tiingo_daily(ticker, start, end)
-        if df is not None and 'adjClose' in df.columns:
-            return pd.DataFrame({
-                'Open': df.get('adjOpen', df.get('open', pd.Series())),
-                'High': df.get('adjHigh', df.get('high', pd.Series())),
-                'Low': df.get('adjLow', df.get('low', pd.Series())),
-                'Close': df['adjClose'],
-                'Volume': df.get('adjVolume', df.get('volume', pd.Series())),
-            }, index=df.index)
+    """Fetch OHLCV data via yfinance."""
     try:
         data = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
         if isinstance(data.columns, pd.MultiIndex):
@@ -3124,5 +3003,5 @@ if __name__ == '__main__':
     print("Server running on http://localhost:5000")
     print(f"News API configured: {NEWS_API_KEY is not None}")
     print(f"OpenAI configured: {openai_client is not None}")
-    print(f"Tiingo configured: {TIINGO_API_KEY is not None}")
+    print("Data source: yfinance (Tiingo removed)")
     socketio.run(app, debug=True, port=5000, allow_unsafe_werkzeug=True)
