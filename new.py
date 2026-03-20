@@ -10,9 +10,15 @@ import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
 from scipy.stats import norm
+from scipy.stats.qmc import Sobol
+from scipy.cluster.hierarchy import linkage, dendrogram as scipy_dendrogram
+from scipy.spatial.distance import squareform
+from numpy.linalg import inv, pinv
 from flask_socketio import SocketIO
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import requests
+import time as _time
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -22,6 +28,7 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # Configuration
 NEWS_API_KEY = os.environ.get('NEWS_API_KEY', None)  # Get from environment variable
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', None)
+TIINGO_API_KEY = os.environ.get('TIINGO_API_KEY', None)
 
 # Configure OpenAI if API key is available
 openai_client = None
@@ -37,6 +44,21 @@ def stream_prices(data):
     tickers = data['tickers']
     while True:
         try:
+            # Try Tiingo IEX first
+            if TIINGO_API_KEY:
+                iex_results = _tiingo_iex(tickers)
+                if iex_results:
+                    price_dict = {}
+                    for item in iex_results:
+                        t = item.get('ticker', '').upper()
+                        p = item.get('last', item.get('tngoLast', None))
+                        if t and p:
+                            price_dict[t] = float(p)
+                    if price_dict:
+                        socketio.emit('price_update', price_dict)
+                        socketio.sleep(10)
+                        continue
+            # Fallback to yfinance
             prices = yf.download(tickers, period='1d', interval='1m', progress=False)['Close'].iloc[-1]
             socketio.emit('price_update', prices.to_dict())
         except Exception as e:
@@ -126,6 +148,768 @@ def rolling_sharpe(returns, window=60, rf=0.0):
 def apply_scenario(returns, multiplier):
     return returns * multiplier
 
+# ── Tiingo Data Layer ─────────────────────────────────────────────────
+_cache = {}  # Simple in-memory cache: key -> (data, timestamp)
+_CACHE_TTL = 300  # 5 minutes
+
+def _cache_get(key):
+    if key in _cache:
+        data, ts = _cache[key]
+        if _time.time() - ts < _CACHE_TTL:
+            return data
+        del _cache[key]
+    return None
+
+def _cache_set(key, data):
+    _cache[key] = (data, _time.time())
+
+def _tiingo_headers():
+    return {'Content-Type': 'application/json', 'Authorization': f'Token {TIINGO_API_KEY}'}
+
+def _tiingo_daily(ticker, start, end):
+    """Fetch adjusted daily prices from Tiingo. Returns DataFrame with adjClose indexed by date."""
+    cache_key = f'tiingo_daily_{ticker}_{start}_{end}'
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        url = f'https://api.tiingo.com/tiingo/daily/{ticker}/prices'
+        params = {'startDate': start, 'endDate': end}
+        r = requests.get(url, headers=_tiingo_headers(), params=params, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        if not data:
+            raise ValueError(f'No Tiingo data for {ticker}')
+        df = pd.DataFrame(data)
+        df['date'] = pd.to_datetime(df['date']).dt.tz_localize(None)
+        df = df.set_index('date')
+        _cache_set(cache_key, df)
+        return df
+    except Exception as e:
+        print(f'Tiingo daily failed for {ticker}: {e}, falling back to yfinance')
+        return None
+
+def _tiingo_meta(ticker):
+    """Fetch company metadata from Tiingo."""
+    cache_key = f'tiingo_meta_{ticker}'
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        r = requests.get(f'https://api.tiingo.com/tiingo/daily/{ticker}', headers=_tiingo_headers(), timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        _cache_set(cache_key, data)
+        return data
+    except Exception:
+        return {}
+
+def _tiingo_news(tickers, limit=20):
+    """Fetch news from Tiingo News API."""
+    cache_key = f'tiingo_news_{"_".join(sorted(tickers))}_{limit}'
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        csv = ','.join(tickers)
+        r = requests.get(f'https://api.tiingo.com/tiingo/news', headers=_tiingo_headers(),
+                         params={'tickers': csv, 'limit': limit}, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        _cache_set(cache_key, data)
+        return data
+    except Exception:
+        return []
+
+def _tiingo_iex(tickers):
+    """Fetch real-time IEX prices from Tiingo."""
+    cache_key = f'tiingo_iex_{"_".join(sorted(tickers))}'
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        csv = ','.join(tickers)
+        r = requests.get(f'https://api.tiingo.com/iex/', headers=_tiingo_headers(),
+                         params={'tickers': csv}, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        _cache_set(cache_key, data)
+        return data
+    except Exception:
+        return []
+
+def _fetch_prices(tickers, start, end):
+    """Abstraction layer: tries Tiingo first, falls back to yfinance. Returns DataFrame of adjusted close prices."""
+    if not isinstance(tickers, list):
+        tickers = [tickers]
+
+    all_data = {}
+    for t in tickers:
+        # Try Tiingo first
+        if TIINGO_API_KEY:
+            df = _tiingo_daily(t, start, end)
+            if df is not None and 'adjClose' in df.columns and len(df) > 0:
+                all_data[t] = df['adjClose']
+                continue
+
+        # Fallback to yfinance
+        try:
+            yf_data = yf.download(t, start=start, end=end, auto_adjust=True, progress=False)['Close']
+            if isinstance(yf_data, pd.DataFrame):
+                yf_data = yf_data.iloc[:, 0]
+            if len(yf_data) > 0:
+                all_data[t] = yf_data
+        except Exception as e:
+            print(f'Failed to fetch {t}: {e}')
+
+    if not all_data:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(all_data)
+    df.index = pd.to_datetime(df.index)
+    if hasattr(df.index, 'tz') and df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+    return df.dropna()
+
+def _fetch_ohlcv(ticker, start, end):
+    """Fetch OHLCV data, Tiingo first then yfinance fallback."""
+    if TIINGO_API_KEY:
+        df = _tiingo_daily(ticker, start, end)
+        if df is not None and 'adjClose' in df.columns:
+            return pd.DataFrame({
+                'Open': df.get('adjOpen', df.get('open', pd.Series())),
+                'High': df.get('adjHigh', df.get('high', pd.Series())),
+                'Low': df.get('adjLow', df.get('low', pd.Series())),
+                'Close': df['adjClose'],
+                'Volume': df.get('adjVolume', df.get('volume', pd.Series())),
+            }, index=df.index)
+    try:
+        data = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
+        return data[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
+    except Exception:
+        return pd.DataFrame()
+
+# ── Variance Reduction Helpers ──────────────────────────────────────
+def _mc_standard(n, d):
+    """Standard pseudo-random weight generation."""
+    w = np.random.random((n, d))
+    return w / w.sum(axis=1, keepdims=True)
+
+def _mc_antithetic(n, d):
+    """Antithetic variates: pair each sample with its mirror."""
+    half = n // 2
+    w1 = np.random.random((half, d))
+    w2 = 1.0 - w1  # mirror
+    w1 = w1 / w1.sum(axis=1, keepdims=True)
+    w2 = w2 / w2.sum(axis=1, keepdims=True)
+    return np.vstack([w1, w2])
+
+def _mc_sobol(n, d):
+    """Quasi-Monte Carlo using Sobol low-discrepancy sequences."""
+    # Sobol works best with powers of 2
+    m = int(2 ** np.ceil(np.log2(max(n, 2))))
+    sampler = Sobol(d=d, scramble=True, seed=42)
+    w = sampler.random(m)[:n]
+    # Avoid exact 0s or 1s
+    w = np.clip(w, 1e-6, 1.0)
+    return w / w.sum(axis=1, keepdims=True)
+
+def _mc_full(n, d):
+    """Combined: Sobol for first half, antithetic mirrors for second half."""
+    half = n // 2
+    sampler = Sobol(d=d, scramble=True, seed=42)
+    m = int(2 ** np.ceil(np.log2(max(half, 2))))
+    w1 = sampler.random(m)[:half]
+    w1 = np.clip(w1, 1e-6, 1.0)
+    w1 = w1 / w1.sum(axis=1, keepdims=True)
+    w2 = 1.0 - w1
+    w2 = np.clip(w2, 1e-6, 1.0)
+    w2 = w2 / w2.sum(axis=1, keepdims=True)
+    return np.vstack([w1, w2])
+
+MC_GENERATORS = {
+    'standard': _mc_standard,
+    'antithetic': _mc_antithetic,
+    'sobol': _mc_sobol,
+    'full': _mc_full,
+}
+
+# ── Black-Scholes Options Pricing ────────────────────────────────────
+def _black_scholes(S, K, T, r, sigma, option_type='call'):
+    """Black-Scholes option pricing formula."""
+    if T <= 0 or sigma <= 0:
+        # At expiry or zero vol: return intrinsic value
+        if option_type == 'call':
+            return max(S - K, 0.0)
+        return max(K - S, 0.0)
+
+    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+
+    if option_type == 'call':
+        return float(S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2))
+    else:
+        return float(K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1))
+
+
+def _bs_greeks(S, K, T, r, sigma, option_type='call'):
+    """Compute Black-Scholes Greeks."""
+    if T <= 0 or sigma <= 0:
+        intrinsic_call = max(S - K, 0.0)
+        return {'delta': 1.0 if (option_type == 'call' and S > K) else (-1.0 if (option_type == 'put' and S < K) else 0.0),
+                'gamma': 0.0, 'theta': 0.0, 'vega': 0.0, 'rho': 0.0}
+
+    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+    pdf_d1 = norm.pdf(d1)
+    sqrt_T = np.sqrt(T)
+
+    # Gamma (same for call and put)
+    gamma = pdf_d1 / (S * sigma * sqrt_T)
+
+    # Vega (same for call and put) — per 1% move in vol
+    vega = S * pdf_d1 * sqrt_T / 100.0
+
+    if option_type == 'call':
+        delta = norm.cdf(d1)
+        theta = (-S * pdf_d1 * sigma / (2 * sqrt_T) - r * K * np.exp(-r * T) * norm.cdf(d2)) / 365.0
+        rho = K * T * np.exp(-r * T) * norm.cdf(d2) / 100.0
+    else:
+        delta = norm.cdf(d1) - 1.0
+        theta = (-S * pdf_d1 * sigma / (2 * sqrt_T) + r * K * np.exp(-r * T) * norm.cdf(-d2)) / 365.0
+        rho = -K * T * np.exp(-r * T) * norm.cdf(-d2) / 100.0
+
+    return {
+        'delta': round(float(delta), 6),
+        'gamma': round(float(gamma), 6),
+        'theta': round(float(theta), 6),
+        'vega': round(float(vega), 6),
+        'rho': round(float(rho), 6),
+    }
+
+
+def _implied_volatility(market_price, S, K, T, r, option_type='call', tol=1e-6, max_iter=100):
+    """Newton-Raphson implied volatility solver with bisection fallback."""
+    if T <= 0:
+        return None
+
+    sigma = 0.3  # initial guess
+    for _ in range(max_iter):
+        price = _black_scholes(S, K, T, r, sigma, option_type)
+        vega_raw = S * norm.pdf(
+            (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+        ) * np.sqrt(T)
+
+        if abs(vega_raw) < 1e-10:
+            break
+        sigma -= (price - market_price) / vega_raw
+        sigma = max(0.001, min(sigma, 5.0))  # clamp
+        if abs(price - market_price) < tol:
+            return round(float(sigma), 6)
+
+    # Bisection fallback
+    lo, hi = 0.001, 5.0
+    for _ in range(100):
+        mid = (lo + hi) / 2.0
+        price = _black_scholes(S, K, T, r, mid, option_type)
+        if abs(price - market_price) < tol:
+            return round(float(mid), 6)
+        if price < market_price:
+            lo = mid
+        else:
+            hi = mid
+    return round(float((lo + hi) / 2.0), 6)
+
+
+# ── Backtracking Constrained Optimization ────────────────────────────
+def _backtrack_portfolios(tickers, mean_returns, cov_matrix, constraints,
+                          ticker_info, risk_free_rate, weight_step=0.05):
+    """Backtracking search for valid portfolios under constraints."""
+    n = len(tickers)
+    min_w = constraints.get('min_weight', {})
+    max_w = constraints.get('max_weight', {})
+    min_ret = constraints.get('min_total_return', None)
+    max_vol = constraints.get('max_total_volatility', None)
+    sector_limits = constraints.get('sector_limits', {})
+    min_div = constraints.get('min_dividend_yield', None)
+
+    valid = []
+    explored = [0]
+    pruned = [0]
+    mean_arr = mean_returns.values
+    cov_arr = cov_matrix.values
+
+    # Pre-compute per-ticker bounds
+    lo = np.array([min_w.get(t, 0.0) for t in tickers])
+    hi = np.array([max_w.get(t, 1.0) for t in tickers])
+    step = weight_step
+
+    def backtrack(idx, weights, remaining):
+        explored[0] += 1
+        if idx == n:
+            # Last asset gets all remaining weight
+            w = remaining
+            if w < lo[idx - 1] - 1e-9 or w > hi[idx - 1] + 1e-9:
+                pruned[0] += 1
+                return
+            weights_full = np.array(weights)
+
+            # Check return constraint
+            port_ret = float(weights_full @ mean_arr)
+            if min_ret is not None and port_ret < min_ret:
+                pruned[0] += 1
+                return
+
+            # Check volatility constraint
+            port_vol = float(np.sqrt(weights_full @ cov_arr @ weights_full))
+            if max_vol is not None and port_vol > max_vol:
+                pruned[0] += 1
+                return
+
+            # Check sector limits
+            if sector_limits:
+                sector_alloc = {}
+                for i, t in enumerate(tickers):
+                    sec = ticker_info.get(t, {}).get('sector', 'Unknown')
+                    sector_alloc[sec] = sector_alloc.get(sec, 0) + weights_full[i]
+                for sec, limit in sector_limits.items():
+                    if sector_alloc.get(sec, 0) > limit + 1e-9:
+                        pruned[0] += 1
+                        return
+
+            # Check dividend yield
+            if min_div is not None:
+                weighted_div = sum(
+                    weights_full[i] * ticker_info.get(t, {}).get('dividend_yield', 0)
+                    for i, t in enumerate(tickers)
+                )
+                if weighted_div < min_div:
+                    pruned[0] += 1
+                    return
+
+            sharpe = (port_ret - risk_free_rate) / port_vol if port_vol > 0 else 0
+            valid.append({
+                'weights': {t: round(float(weights_full[i]), 4) for i, t in enumerate(tickers)},
+                'expected_return': round(port_ret, 6),
+                'volatility': round(port_vol, 6),
+                'sharpe_ratio': round(float(sharpe), 4),
+            })
+            return
+
+        # Current asset index
+        i = idx
+        min_remaining_for_rest = sum(lo[j] for j in range(i + 1, n))
+        max_remaining_for_rest = sum(hi[j] for j in range(i + 1, n))
+
+        w_lo = max(lo[i], remaining - max_remaining_for_rest)
+        w_hi = min(hi[i], remaining - min_remaining_for_rest)
+
+        if w_lo > w_hi + 1e-9:
+            pruned[0] += 1
+            return
+
+        w = w_lo
+        while w <= w_hi + 1e-9:
+            backtrack(idx + 1, weights + [w], remaining - w)
+            w = round(w + step, 10)
+
+            # Safety: limit total explored to prevent hanging
+            if explored[0] > 500000:
+                return
+
+    backtrack(0, [], 1.0)
+
+    # Sort by Sharpe and return top 20
+    valid.sort(key=lambda x: x['sharpe_ratio'], reverse=True)
+    return valid[:20], explored[0], pruned[0]
+
+
+def _compute_sensitivities(weights_dict, tickers, mean_returns, cov_matrix, risk_free_rate):
+    """Finite-difference sensitivity analysis."""
+    weights = np.array([weights_dict[t] for t in tickers])
+    mean_arr = mean_returns.values
+    cov_arr = cov_matrix.values
+
+    # Base metrics
+    base_ret = float(weights @ mean_arr)
+    base_vol = float(np.sqrt(weights @ cov_arr @ weights))
+    base_sharpe = (base_ret - risk_free_rate) / base_vol if base_vol > 0 else 0
+
+    sensitivities = []
+
+    # 1. Volatility bump (+1%): scale diagonal of cov by 1.01^2
+    cov_bumped = cov_arr.copy()
+    np.fill_diagonal(cov_bumped, np.diag(cov_arr) * 1.01 ** 2)
+    bumped_vol = float(np.sqrt(weights @ cov_bumped @ weights))
+    bumped_sharpe = (base_ret - risk_free_rate) / bumped_vol if bumped_vol > 0 else 0
+    sensitivities.append({
+        'parameter': 'Volatility +1%',
+        'base_sharpe': round(base_sharpe, 4),
+        'bumped_sharpe': round(bumped_sharpe, 4),
+        'delta_sharpe': round(bumped_sharpe - base_sharpe, 4),
+        'pct_impact': round((bumped_sharpe - base_sharpe) / abs(base_sharpe) * 100, 2) if base_sharpe != 0 else 0,
+    })
+
+    # 2. Correlation bump (+5%): scale off-diagonal of cov
+    cov_corr = cov_arr.copy()
+    diag = np.sqrt(np.diag(cov_arr))
+    for i in range(len(tickers)):
+        for j in range(len(tickers)):
+            if i != j:
+                cov_corr[i, j] = cov_arr[i, j] * 1.05
+    bumped_vol = float(np.sqrt(weights @ cov_corr @ weights))
+    bumped_sharpe = (base_ret - risk_free_rate) / bumped_vol if bumped_vol > 0 else 0
+    sensitivities.append({
+        'parameter': 'Correlation +5%',
+        'base_sharpe': round(base_sharpe, 4),
+        'bumped_sharpe': round(bumped_sharpe, 4),
+        'delta_sharpe': round(bumped_sharpe - base_sharpe, 4),
+        'pct_impact': round((bumped_sharpe - base_sharpe) / abs(base_sharpe) * 100, 2) if base_sharpe != 0 else 0,
+    })
+
+    # 3. Expected return bump (+1%)
+    mean_bumped = mean_arr + 0.01
+    bumped_ret = float(weights @ mean_bumped)
+    bumped_sharpe = (bumped_ret - risk_free_rate) / base_vol if base_vol > 0 else 0
+    sensitivities.append({
+        'parameter': 'Returns +1%',
+        'base_sharpe': round(base_sharpe, 4),
+        'bumped_sharpe': round(bumped_sharpe, 4),
+        'delta_sharpe': round(bumped_sharpe - base_sharpe, 4),
+        'pct_impact': round((bumped_sharpe - base_sharpe) / abs(base_sharpe) * 100, 2) if base_sharpe != 0 else 0,
+    })
+
+    # 4. Risk-free rate bump (+0.25%)
+    rf_bumped = risk_free_rate + 0.0025
+    bumped_sharpe = (base_ret - rf_bumped) / base_vol if base_vol > 0 else 0
+    sensitivities.append({
+        'parameter': 'Risk-Free Rate +0.25%',
+        'base_sharpe': round(base_sharpe, 4),
+        'bumped_sharpe': round(bumped_sharpe, 4),
+        'delta_sharpe': round(bumped_sharpe - base_sharpe, 4),
+        'pct_impact': round((bumped_sharpe - base_sharpe) / abs(base_sharpe) * 100, 2) if base_sharpe != 0 else 0,
+    })
+
+    # Per-asset weight sensitivities
+    per_asset = []
+    for idx, t in enumerate(tickers):
+        w_bump = weights.copy()
+        bump = 0.01
+        w_bump[idx] += bump
+        # Reduce others proportionally
+        others_sum = w_bump.sum() - w_bump[idx]
+        if others_sum > 0:
+            for j in range(len(tickers)):
+                if j != idx:
+                    w_bump[j] *= (1 - w_bump[idx]) / others_sum
+        w_bump = np.clip(w_bump, 0, 1)
+        w_bump /= w_bump.sum()
+
+        b_ret = float(w_bump @ mean_arr)
+        b_vol = float(np.sqrt(w_bump @ cov_arr @ w_bump))
+        b_sharpe = (b_ret - risk_free_rate) / b_vol if b_vol > 0 else 0
+        per_asset.append({
+            'ticker': t,
+            'weight_bump': bump,
+            'return_delta': round(b_ret - base_ret, 6),
+            'vol_delta': round(b_vol - base_vol, 6),
+            'sharpe_delta': round(b_sharpe - base_sharpe, 4),
+        })
+
+    return {
+        'base_metrics': {
+            'expected_return': round(base_ret, 6),
+            'volatility': round(base_vol, 6),
+            'sharpe_ratio': round(base_sharpe, 4),
+        },
+        'sensitivities': sensitivities,
+        'per_asset_sensitivities': per_asset,
+    }
+
+
+# ── Hierarchical Risk Parity (HRP) ───────────────────────────────────
+def _hrp_tree(cov, corr):
+    """Build hierarchical tree from correlation matrix."""
+    dist = np.sqrt((1 - corr) / 2)
+    np.fill_diagonal(dist.values, 0)
+    condensed = squareform(dist.values, checks=False)
+    link = linkage(condensed, method='single')
+    return link
+
+def _hrp_quasi_diag(link):
+    """Quasi-diagonalization: reorder assets by dendrogram leaves."""
+    link = link.astype(int, copy=False)
+    n = link[-1, -1]
+    sort_ix = pd.Series([link[-1, 0], link[-1, 1]])
+    num_items = n
+    while sort_ix.max() >= num_items:
+        sort_ix.index = range(0, sort_ix.shape[0] * 2, 2)
+        df0 = sort_ix[sort_ix >= num_items]
+        i = df0.index
+        j = df0.values - num_items
+        sort_ix[i] = link[j, 0]
+        df1 = pd.Series(link[j, 1], index=i + 1)
+        sort_ix = pd.concat([sort_ix, df1])
+        sort_ix = sort_ix.sort_index()
+        sort_ix.index = range(sort_ix.shape[0])
+    return sort_ix.tolist()
+
+def _hrp_recursive_bisection(cov, sorted_indices):
+    """Allocate weights via inverse-variance recursive bisection."""
+    w = pd.Series(1.0, index=sorted_indices)
+    cluster_items = [sorted_indices]
+
+    while len(cluster_items) > 0:
+        cluster_items_new = []
+        for sub in cluster_items:
+            if len(sub) <= 1:
+                continue
+            mid = len(sub) // 2
+            left = sub[:mid]
+            right = sub[mid:]
+
+            # Cluster variance = inverse of sum of inverse variances
+            def cluster_var(items):
+                cov_sub = cov.iloc[items, items]
+                ivp = 1.0 / np.diag(cov_sub)
+                ivp /= ivp.sum()
+                return float(np.dot(ivp, np.dot(cov_sub, ivp)))
+
+            lv = cluster_var(left)
+            rv = cluster_var(right)
+            alpha = 1 - lv / (lv + rv)
+
+            w[left] *= alpha
+            w[right] *= (1 - alpha)
+
+            if len(left) > 1:
+                cluster_items_new.append(left)
+            if len(right) > 1:
+                cluster_items_new.append(right)
+        cluster_items = cluster_items_new
+
+    return w / w.sum()
+
+def _hrp_optimize(returns_df):
+    """Run full HRP optimization. Returns weights, linkage, sorted_order, metrics."""
+    cov = returns_df.cov() * 252
+    corr = returns_df.corr()
+    link = _hrp_tree(cov, corr)
+    sorted_ix = _hrp_quasi_diag(link)
+    sorted_ix = [int(x) for x in sorted_ix]
+    weights_series = _hrp_recursive_bisection(cov, sorted_ix)
+
+    # Map back to ticker names
+    tickers = returns_df.columns.tolist()
+    weights = {tickers[i]: float(weights_series[i]) for i in range(len(tickers))}
+
+    # Compute metrics
+    mean_returns = returns_df.mean() * 252
+    w_arr = np.array([weights[t] for t in tickers])
+    port_ret = float(np.dot(w_arr, mean_returns.values))
+    port_vol = float(np.sqrt(np.dot(w_arr.T, np.dot(cov.values, w_arr))))
+    port_sharpe = port_ret / port_vol if port_vol > 0 else 0
+
+    # Dendrogram data for frontend rendering
+    ddata = scipy_dendrogram(link, labels=tickers, no_plot=True)
+
+    return {
+        'weights': weights,
+        'linkage_matrix': link.tolist(),
+        'sorted_order': sorted_ix,
+        'dendrogram_plot': {
+            'icoord': ddata['icoord'],
+            'dcoord': ddata['dcoord'],
+            'ivl': ddata['ivl'],
+            'leaves': ddata['leaves'],
+        },
+        'metrics': {
+            'expected_return': port_ret,
+            'volatility': port_vol,
+            'sharpe_ratio': port_sharpe,
+        },
+    }
+
+# ── Black-Litterman Model ────────────────────────────────────────────
+def _black_litterman(market_caps, cov_matrix, views_P, views_Q, tau=0.05, omega=None, delta=2.5):
+    """
+    Black-Litterman model.
+    market_caps: array of market cap values
+    cov_matrix: NxN covariance matrix (numpy)
+    views_P: KxN matrix (K views on N assets)
+    views_Q: Kx1 vector of expected returns for views
+    """
+    n = len(market_caps)
+    w_mkt = np.array(market_caps, dtype=float)
+    w_mkt = w_mkt / w_mkt.sum()
+    cov = np.array(cov_matrix, dtype=float)
+
+    # Implied equilibrium returns
+    pi = delta * cov @ w_mkt
+
+    P = np.array(views_P, dtype=float)
+    Q = np.array(views_Q, dtype=float).flatten()
+
+    if len(P) == 0 or len(Q) == 0:
+        # No views: return market-cap weights and equilibrium returns
+        return {
+            'weights': {i: float(w) for i, w in enumerate(w_mkt)},
+            'expected_returns': pi.tolist(),
+            'implied_returns': pi.tolist(),
+            'posterior_cov': (tau * cov).tolist(),
+        }
+
+    # Omega: uncertainty of views
+    if omega is None:
+        omega = tau * np.diag(np.diag(P @ (tau * cov) @ P.T))
+
+    # Posterior
+    try:
+        tau_cov_inv = inv(tau * cov)
+    except Exception:
+        tau_cov_inv = pinv(tau * cov)
+
+    try:
+        omega_inv = inv(omega)
+    except Exception:
+        omega_inv = pinv(omega)
+
+    try:
+        M = inv(tau_cov_inv + P.T @ omega_inv @ P)
+    except Exception:
+        M = pinv(tau_cov_inv + P.T @ omega_inv @ P)
+
+    mu_bl = M @ (tau_cov_inv @ pi + P.T @ omega_inv @ Q)
+    cov_bl = M
+
+    # Optimal weights from posterior
+    try:
+        w_bl = inv(delta * cov_bl) @ mu_bl
+    except Exception:
+        w_bl = pinv(delta * cov_bl) @ mu_bl
+
+    # Normalize weights (allow short selling to be clamped)
+    w_bl = np.maximum(w_bl, 0)  # No short selling
+    if w_bl.sum() > 0:
+        w_bl = w_bl / w_bl.sum()
+
+    return {
+        'weights': w_bl.tolist(),
+        'expected_returns': mu_bl.tolist(),
+        'implied_returns': pi.tolist(),
+        'posterior_cov': cov_bl.tolist(),
+    }
+
+def _sentiment_to_views(sentiment_scores, tickers, magnitude=0.02):
+    """Convert sentiment scores to Black-Litterman views P, Q."""
+    P_rows = []
+    Q_vals = []
+    for i, t in enumerate(tickers):
+        score = sentiment_scores.get(t, 0)
+        if abs(score) > 0.3:
+            row = np.zeros(len(tickers))
+            row[i] = 1.0
+            P_rows.append(row)
+            Q_vals.append(magnitude * score)
+    if not P_rows:
+        return np.array([]).reshape(0, len(tickers)), np.array([])
+    return np.array(P_rows), np.array(Q_vals)
+
+# ── Backtesting with Friction ────────────────────────────────────────
+def _apply_friction(returns_series, rebalance_mask, fee_pct=0.001, slippage_vol_factor=0.05):
+    """Apply trading friction on rebalance dates."""
+    adj = returns_series.copy()
+    if slippage_vol_factor > 0:
+        rolling_vol = returns_series.rolling(20).std().fillna(returns_series.std())
+        slippage = rolling_vol * slippage_vol_factor
+    else:
+        slippage = pd.Series(0, index=returns_series.index)
+
+    total_fees = 0.0
+    for date in returns_series.index[rebalance_mask]:
+        fee = fee_pct
+        slip = float(slippage.get(date, 0))
+        adj.loc[date] -= (fee + slip)
+        total_fees += fee
+
+    return adj, total_fees
+
+def _backtest_portfolio(tickers, weights, start_date, end_date, rebalance_freq='monthly',
+                        fee_pct=0.001, slippage_factor=0.05, benchmark='SPY'):
+    """Full backtesting with friction layer."""
+    all_tickers = list(tickers) + ([benchmark] if benchmark and benchmark not in tickers else [])
+    prices = _fetch_prices(all_tickers, start_date, end_date)
+
+    if prices.empty or len(prices) < 30:
+        raise ValueError('Insufficient price data for backtesting')
+
+    returns = prices.pct_change().dropna()
+
+    # Portfolio returns
+    w = np.array([weights.get(t, 0) for t in tickers])
+    w = w / w.sum()
+    port_returns = returns[tickers] @ w
+
+    # Rebalance dates
+    freq_map = {'monthly': 'M', 'quarterly': 'Q', 'annual': 'A'}
+    freq = freq_map.get(rebalance_freq, 'M')
+    rebal_dates = port_returns.resample(freq).last().index
+    rebal_mask = port_returns.index.isin(rebal_dates)
+
+    # Apply friction
+    port_adj, total_fees = _apply_friction(port_returns, rebal_mask, fee_pct, slippage_factor)
+
+    # Cumulative returns
+    port_cum = (1 + port_adj).cumprod()
+    port_cum_nofee = (1 + port_returns).cumprod()
+
+    # Benchmark
+    bench_metrics = {}
+    bench_series = []
+    if benchmark and benchmark in prices.columns:
+        bench_ret = returns[benchmark]
+        bench_cum = (1 + bench_ret).cumprod()
+        bench_series = [{'date': d.strftime('%Y-%m-%d'), 'value': float(v)} for d, v in bench_cum.items()]
+        bench_metrics = {
+            'cagr': float(cagr(bench_cum)),
+            'volatility': float(annual_vol(prices[benchmark])),
+            'sharpe': float(sharpe(prices[benchmark])),
+            'max_drawdown': float(max_drawdown(bench_cum)),
+        }
+        bv, bc = var_cvar(bench_ret)
+        bench_metrics['var_95'] = float(bv)
+        bench_metrics['cvar_95'] = float(bc)
+
+    # Portfolio metrics
+    port_metrics = {
+        'cagr': float(cagr(port_cum)),
+        'volatility': float(annual_vol(port_cum)),
+        'sharpe': float(sharpe(port_cum)),
+        'max_drawdown': float(max_drawdown(port_cum)),
+    }
+    pv, pc = var_cvar(port_adj)
+    port_metrics['var_95'] = float(pv)
+    port_metrics['cvar_95'] = float(pc)
+
+    port_series = [{'date': d.strftime('%Y-%m-%d'), 'value': float(v)} for d, v in port_cum.items()]
+    rebal_list = [d.strftime('%Y-%m-%d') for d in rebal_dates if d in port_returns.index]
+
+    friction_impact = float(port_cum_nofee.iloc[-1] - port_cum.iloc[-1]) if len(port_cum) > 0 else 0
+
+    return {
+        'portfolio_series': port_series,
+        'benchmark_series': bench_series,
+        'portfolio_metrics': port_metrics,
+        'benchmark_metrics': bench_metrics,
+        'rebalance_dates': rebal_list,
+        'total_fees_paid': float(total_fees),
+        'friction_impact': float(friction_impact),
+        'num_rebalances': len(rebal_list),
+    }
+
+
 def validate_date_range(start_date, end_date):
     """Validate date range"""
     try:
@@ -201,19 +985,12 @@ def analyze_portfolio():
         print(f"Downloading data for: {tickers + [benchmark]}")
         
         # Download portfolio stocks
-        px_portfolio = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True, progress=False)["Close"]
-        
+        px_portfolio = _fetch_prices(tickers, start_date, end_date)
+
         # Download benchmark separately to avoid issues
-        px_benchmark = yf.download(benchmark, start=start_date, end=end_date, auto_adjust=True, progress=False)["Close"]
-        
-        # Handle single ticker case for portfolio
-        if len(tickers) == 1:
-            px_portfolio = pd.DataFrame({tickers[0]: px_portfolio})
-        
-        # Ensure benchmark is a Series
-        if isinstance(px_benchmark, pd.DataFrame):
-            px_benchmark = px_benchmark.iloc[:, 0]
-        
+        px_benchmark_df = _fetch_prices([benchmark], start_date, end_date)
+        px_benchmark = px_benchmark_df.iloc[:, 0] if not px_benchmark_df.empty else pd.Series(dtype=float)
+
         # Clean data
         px_portfolio = px_portfolio.dropna(how="all").ffill()
         px_benchmark = px_benchmark.dropna().ffill()
@@ -318,14 +1095,7 @@ def optimize_portfolio():
         print(f"Optimizing portfolio for: {tickers}")
 
         # Download price data
-        prices = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True, progress=False)['Close']
-
-        # Ensure prices is a DataFrame
-        if isinstance(prices, pd.Series):
-            prices = prices.to_frame(name=tickers[0])
-
-        # Clean data
-        prices = prices.dropna()
+        prices = _fetch_prices(tickers, start_date, end_date)
 
         if len(prices) < 30:
             return jsonify({'error': 'Insufficient data. Try a different date range.'}), 400
@@ -335,29 +1105,22 @@ def optimize_portfolio():
         mean_returns = returns.mean() * 252
         cov_matrix = returns.cov() * 252
 
-        # Monte Carlo Simulation
-        results = np.zeros((3, num_portfolios))
-        weights_record = []
-
+        # Monte Carlo Simulation with variance reduction
+        method = data.get('method', 'standard')
         np.random.seed(42)  # For reproducibility
 
-        for i in range(num_portfolios):
-            weights = np.random.random(len(tickers))
-            weights /= np.sum(weights)
-            weights_record.append(weights)
+        generate_weights = MC_GENERATORS.get(method, _mc_standard)
+        all_weights = generate_weights(num_portfolios, len(tickers))
 
-            portfolio_return = np.dot(weights, mean_returns)
-            portfolio_vol = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-            
-            # Handle edge cases
-            if portfolio_vol == 0:
-                sharpe_ratio = 0
-            else:
-                sharpe_ratio = (portfolio_return - risk_free_rate) / portfolio_vol
+        # Vectorized portfolio metric computation
+        mean_ret_arr = mean_returns.values
+        cov_arr = cov_matrix.values
+        portfolio_returns_arr = all_weights @ mean_ret_arr
+        portfolio_vols_arr = np.sqrt(np.einsum('ij,jk,ik->i', all_weights, cov_arr, all_weights))
+        sharpe_arr = np.where(portfolio_vols_arr > 0, (portfolio_returns_arr - risk_free_rate) / portfolio_vols_arr, 0)
 
-            results[0, i] = portfolio_vol
-            results[1, i] = portfolio_return
-            results[2, i] = sharpe_ratio
+        results = np.array([portfolio_vols_arr, portfolio_returns_arr, sharpe_arr])
+        weights_record = all_weights.tolist()
 
         # Find maximum Sharpe ratio portfolio
         max_sharpe_idx = np.argmax(results[2])
@@ -434,6 +1197,7 @@ def optimize_portfolio():
             'plot_image': img_base64,
             'statistics': {
                 'num_simulations': num_portfolios,
+                'method': method,
                 'date_range': {
                     'start': prices.index[0].strftime('%Y-%m-%d'),
                     'end': prices.index[-1].strftime('%Y-%m-%d')
@@ -458,13 +1222,8 @@ def correlation():
         if not valid:
             return jsonify({'error': error}), 400
 
-        prices = yf.download(tickers, start=start_date, period='3y', auto_adjust=True, progress=False)['Close']
-
-        # Ensure prices is a DataFrame (yf.download may return Series for single ticker in older versions)
-        if isinstance(prices, pd.Series):
-            prices = prices.to_frame(name=tickers[0])
-
-        prices = prices.dropna()
+        end_date = datetime.today().strftime("%Y-%m-%d")
+        prices = _fetch_prices(tickers, start_date, end_date)
         
         if len(prices) < 30:
             return jsonify({'error': 'Insufficient data for correlation analysis'}), 400
@@ -499,13 +1258,9 @@ def risk_metrics():
             return jsonify({'error': 'No tickers provided'}), 400
 
         all_tickers = tickers + [benchmark]
-        prices = yf.download(all_tickers, period='3y', auto_adjust=True, progress=False)['Close']
-
-        # Ensure prices is a DataFrame (yf.download may return Series for single download)
-        if isinstance(prices, pd.Series):
-            prices = prices.to_frame(name=all_tickers[0])
-
-        prices = prices.dropna()
+        start_3y = (datetime.today() - timedelta(days=3*365)).strftime("%Y-%m-%d")
+        end_date = datetime.today().strftime("%Y-%m-%d")
+        prices = _fetch_prices(all_tickers, start_3y, end_date)
         
         if len(prices) < 30:
             return jsonify({'error': 'Insufficient data for risk analysis'}), 400
@@ -538,16 +1293,16 @@ def rolling():
         if not valid:
             return jsonify({'error': error}), 400
 
-        prices = yf.download(ticker, period='2y', auto_adjust=True, progress=False)['Close']
-        
-        if isinstance(prices, pd.DataFrame):
-            prices = prices.iloc[:, 0]
-        
-        prices = prices.dropna()
-        
+        start_2y = (datetime.today() - timedelta(days=2*365)).strftime("%Y-%m-%d")
+        end_date = datetime.today().strftime("%Y-%m-%d")
+        prices_df = _fetch_prices([ticker], start_2y, end_date)
+        if prices_df.empty:
+            return jsonify({'error': 'No price data available'}), 400
+        prices = prices_df.iloc[:, 0]
+
         if len(prices) < 60:
             return jsonify({'error': 'Insufficient data for rolling analysis'}), 400
-        
+
         returns = prices.pct_change().dropna()
         sharpe_rolling = rolling_sharpe(returns)
 
@@ -579,16 +1334,16 @@ def scenario():
         if scenario not in scenarios:
             return jsonify({'error': 'Invalid scenario type'}), 400
 
-        prices = yf.download(ticker, period='2y', auto_adjust=True, progress=False)['Close']
-        
-        if isinstance(prices, pd.DataFrame):
-            prices = prices.iloc[:, 0]
-        
-        prices = prices.dropna()
-        
+        start_2y = (datetime.today() - timedelta(days=2*365)).strftime("%Y-%m-%d")
+        end_date = datetime.today().strftime("%Y-%m-%d")
+        prices_df = _fetch_prices([ticker], start_2y, end_date)
+        if prices_df.empty:
+            return jsonify({'error': 'No price data available'}), 400
+        prices = prices_df.iloc[:, 0]
+
         if len(prices) < 30:
             return jsonify({'error': 'Insufficient data for scenario analysis'}), 400
-        
+
         returns = prices.pct_change().dropna()
         simulated = apply_scenario(returns, scenarios[scenario])
 
@@ -614,16 +1369,16 @@ def stress():
         if not valid:
             return jsonify({'error': error}), 400
 
-        prices = yf.download(ticker, period='5y', auto_adjust=True, progress=False)['Close']
-        
-        if isinstance(prices, pd.DataFrame):
-            prices = prices.iloc[:, 0]
-        
-        prices = prices.dropna()
-        
+        start_5y = (datetime.today() - timedelta(days=5*365)).strftime("%Y-%m-%d")
+        end_date = datetime.today().strftime("%Y-%m-%d")
+        prices_df = _fetch_prices([ticker], start_5y, end_date)
+        if prices_df.empty:
+            return jsonify({'error': 'No price data available'}), 400
+        prices = prices_df.iloc[:, 0]
+
         if len(prices) < 30:
             return jsonify({'error': 'Insufficient data for stress testing'}), 400
-        
+
         returns = prices.pct_change().dropna()
 
         worst_day = returns.min()
@@ -654,8 +1409,34 @@ def prices():
 
         prices_data = {}
 
+        # Try Tiingo IEX first for all tickers
+        iex_data = {}
+        if TIINGO_API_KEY:
+            iex_results = _tiingo_iex(tickers)
+            for item in iex_results:
+                t = item.get('ticker', '').upper()
+                if t:
+                    iex_data[t] = item
+
         for ticker in tickers:
             try:
+                if ticker in iex_data:
+                    item = iex_data[ticker]
+                    current_price = item.get('last', item.get('tngoLast', 0))
+                    previous_close = item.get('prevClose', 0)
+                    if current_price and previous_close:
+                        daily_change = current_price - previous_close
+                        daily_change_pct = (daily_change / previous_close) * 100 if previous_close != 0 else 0
+                        prices_data[ticker] = {
+                            'current_price': float(current_price),
+                            'previous_close': float(previous_close),
+                            'daily_change': float(daily_change),
+                            'daily_change_pct': float(daily_change_pct),
+                            'currency': 'USD'
+                        }
+                        continue
+
+                # Fallback to yfinance
                 stock = yf.Ticker(ticker)
                 info = stock.info
 
@@ -734,13 +1515,30 @@ def news():
             return jsonify({'error': error, 'articles': []}), 400
 
         all_articles = {}
-        
+
         for t in tickers:
             try:
+                articles = []
+                # Try Tiingo news first
+                if TIINGO_API_KEY:
+                    tiingo_items = _tiingo_news([t], limit=5)
+                    if tiingo_items:
+                        for item in tiingo_items:
+                            article = {
+                                'title': item.get('title', ''),
+                                'description': item.get('description', ''),
+                                'url': item.get('url', '#'),
+                                'publishedAt': item.get('publishedDate', ''),
+                                'source': {'name': item.get('source', 'Unknown')}
+                            }
+                            articles.append(article)
+                        all_articles[t] = articles
+                        continue
+
+                # Fallback to yfinance
                 stock = yf.Ticker(t)
                 news_items = stock.news
-                
-                articles = []
+
                 for item in (news_items or [])[:5]:
                     content = item.get('content', item)  # nested under 'content' in newer yfinance
                     provider = content.get('provider', {})
@@ -753,7 +1551,7 @@ def news():
                         'source': {'name': provider.get('displayName', provider.get('name', 'Unknown'))}
                     }
                     articles.append(article)
-                
+
                 all_articles[t] = articles
             except Exception as e:
                 print(f"Error fetching news for {t}: {str(e)}")
@@ -853,10 +1651,18 @@ def sentiment():
             for t in tickers:
                 try:
                     if not texts:
-                        stock = yf.Ticker(t)
-                        news_items = stock.news or []
-                        ticker_texts = [item.get('content', item).get('title', '') for item in news_items[:10]
-                                       if item.get('content', item).get('title')]
+                        ticker_texts = []
+                        # Try Tiingo news first
+                        if TIINGO_API_KEY:
+                            tiingo_items = _tiingo_news([t], limit=10)
+                            if tiingo_items:
+                                ticker_texts = [item.get('title', '') for item in tiingo_items if item.get('title')]
+                        # Fallback to yfinance
+                        if not ticker_texts:
+                            stock = yf.Ticker(t)
+                            news_items = stock.news or []
+                            ticker_texts = [item.get('content', item).get('title', '') for item in news_items[:10]
+                                           if item.get('content', item).get('title')]
                     else:
                         ticker_texts = texts
                     
@@ -994,14 +1800,27 @@ PORTFOLIO_PARAMS = {
 
 
 def _run_retirement_mc(current_savings, monthly_contribution, years,
-                       expected_return, volatility, num_sims=5000):
-    """Run Monte Carlo accumulation simulation and return final values array."""
+                       expected_return, volatility, num_sims=5000, method='standard'):
+    """Run Monte Carlo accumulation simulation with optional variance reduction."""
     months = years * 12
     monthly_ret = expected_return / 12
     monthly_vol = volatility / np.sqrt(12)
 
-    # Vectorised: shape (num_sims, months)
-    rand_returns = np.random.normal(monthly_ret, monthly_vol, (num_sims, months))
+    if method == 'antithetic':
+        half = num_sims // 2
+        rand_base = np.random.normal(monthly_ret, monthly_vol, (half, months))
+        # Mirror: reflect around the mean
+        rand_mirror = 2 * monthly_ret - rand_base
+        rand_returns = np.vstack([rand_base, rand_mirror])
+    elif method in ('sobol', 'full'):
+        # Sobol uniform samples transformed to normal via inverse CDF
+        m_pow2 = int(2 ** np.ceil(np.log2(max(num_sims, 2))))
+        sampler = Sobol(d=months, scramble=True, seed=42)
+        uniform = sampler.random(m_pow2)[:num_sims]
+        uniform = np.clip(uniform, 1e-6, 1 - 1e-6)
+        rand_returns = norm.ppf(uniform, loc=monthly_ret, scale=monthly_vol)
+    else:
+        rand_returns = np.random.normal(monthly_ret, monthly_vol, (num_sims, months))
 
     values = np.empty((num_sims, months + 1))
     values[:, 0] = current_savings
@@ -1077,7 +1896,8 @@ def retirement_calculate():
 
         np.random.seed(None)
         values = _run_retirement_mc(current_savings, monthly_contribution,
-                                    years_to_retirement, exp_ret, vol, num_sims=5000)
+                                    years_to_retirement, exp_ret, vol, num_sims=5000,
+                                    method=d.get('method', 'standard'))
         final_values = values[:, -1]
 
         success_rate = float(np.mean(final_values >= target_amount))
@@ -1187,10 +2007,7 @@ def efficient_frontier_3d():
         if not valid:
             return jsonify({'error': error}), 400
 
-        prices = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True, progress=False)['Close']
-        if isinstance(prices, pd.Series):
-            prices = prices.to_frame(name=tickers[0])
-        prices = prices.dropna()
+        prices = _fetch_prices(tickers, start_date, end_date)
 
         if len(prices) < 30:
             return jsonify({'error': 'Insufficient data'}), 400
@@ -1228,9 +2045,14 @@ def time_series_decomposition():
         if not valid:
             return jsonify({'error': error}), 400
 
-        prices = yf.download(ticker, period=period, auto_adjust=True, progress=False)['Close']
-        prices = normalize_series(prices)
-        prices = prices.dropna()
+        period_map = {'6mo': 180, '1y': 365, '2y': 730, '5y': 1825}
+        days = period_map.get(period, 730)
+        start_ts = (datetime.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+        end_ts = datetime.today().strftime("%Y-%m-%d")
+        prices_df = _fetch_prices([ticker], start_ts, end_ts)
+        if prices_df.empty:
+            return jsonify({'error': 'No price data available'}), 400
+        prices = prices_df.iloc[:, 0].dropna()
 
         if len(prices) < 60:
             return jsonify({'error': 'Insufficient data for decomposition'}), 400
@@ -1283,8 +2105,16 @@ def candlestick_data():
         if not valid:
             return jsonify({'error': error}), 400
 
-        stock_data = yf.download(ticker, period=period, interval=interval, auto_adjust=True, progress=False)
-        stock_data = normalize_columns(stock_data)
+        # For daily interval, use _fetch_ohlcv; for intraday, keep yfinance
+        if interval == '1d':
+            period_map = {'1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, '5y': 1825}
+            days = period_map.get(period, 180)
+            start_ts = (datetime.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+            end_ts = datetime.today().strftime("%Y-%m-%d")
+            stock_data = _fetch_ohlcv(ticker, start_ts, end_ts)
+        else:
+            stock_data = yf.download(ticker, period=period, interval=interval, auto_adjust=True, progress=False)
+            stock_data = normalize_columns(stock_data)
 
         if len(stock_data) < 5:
             return jsonify({'error': 'Insufficient data'}), 400
@@ -1318,9 +2148,14 @@ def technical_indicators():
         if not valid:
             return jsonify({'error': error}), 400
 
-        prices = yf.download(ticker, period=period, auto_adjust=True, progress=False)['Close']
-        prices = normalize_series(prices)
-        prices = prices.dropna()
+        period_map = {'6mo': 180, '1y': 365, '2y': 730, '5y': 1825}
+        days = period_map.get(period, 365)
+        start_ts = (datetime.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+        end_ts = datetime.today().strftime("%Y-%m-%d")
+        prices_df = _fetch_prices([ticker], start_ts, end_ts)
+        if prices_df.empty:
+            return jsonify({'error': 'No price data available'}), 400
+        prices = prices_df.iloc[:, 0].dropna()
 
         if len(prices) < 30:
             return jsonify({'error': 'Insufficient data'}), 400
@@ -1389,12 +2224,7 @@ def drawdown_chart():
 
         end_date = datetime.today().strftime("%Y-%m-%d")
         all_tickers = tickers + [benchmark]
-        prices = yf.download(all_tickers, start=start_date, end=end_date, auto_adjust=True, progress=False)['Close']
-        prices = normalize_columns(prices)
-
-        if isinstance(prices, pd.Series):
-            prices = prices.to_frame(name=all_tickers[0])
-        prices = prices.dropna()
+        prices = _fetch_prices(all_tickers, start_date, end_date)
 
         if len(prices) < 30:
             return jsonify({'error': 'Insufficient data'}), 400
@@ -1450,12 +2280,7 @@ def risk_contribution():
             return jsonify({'error': error}), 400
 
         end_date = datetime.today().strftime("%Y-%m-%d")
-        prices = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True, progress=False)['Close']
-        prices = normalize_columns(prices)
-
-        if isinstance(prices, pd.Series):
-            prices = prices.to_frame(name=tickers[0])
-        prices = prices.dropna()
+        prices = _fetch_prices(tickers, start_date, end_date)
 
         if len(prices) < 30:
             return jsonify({'error': 'Insufficient data'}), 400
@@ -1503,16 +2328,33 @@ def risk_contribution():
 def _fetch_ticker_live_data(t):
     """Fetch enriched live data for a single ticker."""
     try:
-        stock = yf.Ticker(t)
-        info = stock.info or {}
+        # Try Tiingo IEX for price data first
+        price = 0
+        prev_close = 0
+        change = 0
+        currency = 'INR'
 
-        # Price data
-        price = info.get('currentPrice') or info.get('regularMarketPrice') or info.get('previousClose', 0)
-        prev_close = info.get('previousClose') or info.get('regularMarketPreviousClose', 0)
-        change = ((price - prev_close) / prev_close * 100) if prev_close else 0
-        currency = info.get('currency', 'INR')
+        if TIINGO_API_KEY:
+            iex_results = _tiingo_iex([t])
+            if iex_results:
+                item = iex_results[0]
+                price = item.get('last', item.get('tngoLast', 0)) or 0
+                prev_close = item.get('prevClose', 0) or 0
+                change = ((price - prev_close) / prev_close * 100) if prev_close else 0
+                currency = 'USD'
 
-        # Mini chart data (5 day hourly)
+        # Fallback to yfinance for price
+        if not price:
+            stock = yf.Ticker(t)
+            info = stock.info or {}
+            price = info.get('currentPrice') or info.get('regularMarketPrice') or info.get('previousClose', 0)
+            prev_close = info.get('previousClose') or info.get('regularMarketPreviousClose', 0)
+            change = ((price - prev_close) / prev_close * 100) if prev_close else 0
+            currency = info.get('currency', 'INR')
+        else:
+            stock = yf.Ticker(t)
+
+        # Mini chart data (5 day hourly) — keep yfinance for intraday
         hist = stock.history(period='5d', interval='1h')
         mini_chart = []
         if not hist.empty:
@@ -1522,16 +2364,28 @@ def _fetch_ticker_live_data(t):
                     'price': round(float(row['Close']), 2)
                 })
 
-        # News headlines
-        news_items = stock.news or []
+        # News headlines — try Tiingo first
         headlines = []
-        for item in news_items[:3]:
-            content = item.get('content', item)
-            headlines.append({
-                'title': content.get('title', 'No title'),
-                'url': content.get('canonicalUrl', {}).get('url', '') if isinstance(content.get('canonicalUrl'), dict) else content.get('link', ''),
-                'source': content.get('provider', {}).get('displayName', '') if isinstance(content.get('provider'), dict) else content.get('source', ''),
-            })
+        if TIINGO_API_KEY:
+            tiingo_items = _tiingo_news([t], limit=3)
+            if tiingo_items:
+                for item in tiingo_items:
+                    headlines.append({
+                        'title': item.get('title', 'No title'),
+                        'url': item.get('url', ''),
+                        'source': item.get('source', ''),
+                    })
+
+        # Fallback to yfinance for news
+        if not headlines:
+            news_items = stock.news or []
+            for item in news_items[:3]:
+                content = item.get('content', item)
+                headlines.append({
+                    'title': content.get('title', 'No title'),
+                    'url': content.get('canonicalUrl', {}).get('url', '') if isinstance(content.get('canonicalUrl'), dict) else content.get('link', ''),
+                    'source': content.get('provider', {}).get('displayName', '') if isinstance(content.get('provider'), dict) else content.get('source', ''),
+                })
 
         # Simple sentiment from headlines
         sentiment_score = 0.0
@@ -1596,7 +2450,18 @@ def _gather_stock_context(ticker):
     try:
         stock = yf.Ticker(ticker)
         info = stock.info or {}
-        context_parts = [f"\n=== {ticker} ({info.get('longName', ticker)}) ==="]
+
+        # Supplement with Tiingo metadata
+        tiingo_meta = {}
+        if TIINGO_API_KEY:
+            tiingo_meta = _tiingo_meta(ticker)
+
+        long_name = info.get('longName', tiingo_meta.get('name', ticker))
+        context_parts = [f"\n=== {ticker} ({long_name}) ==="]
+
+        # Tiingo description if available
+        if tiingo_meta.get('description'):
+            context_parts.append(f"Description: {tiingo_meta['description'][:300]}")
 
         # Basic info
         context_parts.append(f"Sector: {info.get('sector', 'N/A')}, Industry: {info.get('industry', 'N/A')}")
@@ -1634,16 +2499,27 @@ def _gather_stock_context(ticker):
         except Exception:
             pass
 
-        # Recent news
+        # Recent news — try Tiingo first
         try:
-            news_items = stock.news or []
-            if news_items:
-                context_parts.append("Recent News:")
-                for item in news_items[:5]:
-                    content = item.get('content', item)
-                    title = content.get('title', '')
-                    if title:
-                        context_parts.append(f"  - {title}")
+            news_added = False
+            if TIINGO_API_KEY:
+                tiingo_items = _tiingo_news([ticker], limit=5)
+                if tiingo_items:
+                    context_parts.append("Recent News:")
+                    for item in tiingo_items:
+                        title = item.get('title', '')
+                        if title:
+                            context_parts.append(f"  - {title}")
+                    news_added = True
+            if not news_added:
+                news_items = stock.news or []
+                if news_items:
+                    context_parts.append("Recent News:")
+                    for item in news_items[:5]:
+                        content = item.get('content', item)
+                        title = content.get('title', '')
+                        if title:
+                            context_parts.append(f"  - {title}")
         except Exception:
             pass
 
@@ -1730,9 +2606,495 @@ Please provide a thorough, well-researched response based on the data above."""
         return jsonify({'error': str(e)}), 500
 
 
+# ── Options Pricing Endpoints ────────────────────────────────────────
+@app.route('/api/options/price', methods=['POST'])
+def options_price():
+    try:
+        d = request.json
+        S = float(d['spot_price'])
+        K = float(d['strike_price'])
+        T = float(d['time_to_expiry'])  # in years
+        r = float(d.get('risk_free_rate', 0.065))
+        sigma = float(d['volatility'])
+        option_type = d.get('option_type', 'call')
+
+        price = _black_scholes(S, K, T, r, sigma, option_type)
+        greeks = _bs_greeks(S, K, T, r, sigma, option_type)
+
+        return jsonify({
+            'price': round(price, 4),
+            'greeks': greeks,
+            'inputs': {'S': S, 'K': K, 'T': T, 'r': r, 'sigma': sigma, 'type': option_type}
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/options/greeks', methods=['POST'])
+def options_greeks_curves():
+    try:
+        d = request.json
+        S = float(d['spot_price'])
+        K = float(d['strike_price'])
+        T = float(d['time_to_expiry'])
+        r = float(d.get('risk_free_rate', 0.065))
+        sigma = float(d['volatility'])
+        option_type = d.get('option_type', 'call')
+
+        # Price & Delta & Gamma vs Spot
+        spots = np.linspace(0.5 * K, 1.5 * K, 50)
+        price_vs_spot = [round(_black_scholes(s, K, T, r, sigma, option_type), 4) for s in spots]
+        delta_vs_spot = [_bs_greeks(s, K, T, r, sigma, option_type)['delta'] for s in spots]
+        gamma_vs_spot = [_bs_greeks(s, K, T, r, sigma, option_type)['gamma'] for s in spots]
+
+        # Price & Theta vs Time
+        times = np.linspace(max(T, 0.02), 0.01, 30)
+        price_vs_time = [round(_black_scholes(S, K, t, r, sigma, option_type), 4) for t in times]
+        theta_vs_time = [_bs_greeks(S, K, t, r, sigma, option_type)['theta'] for t in times]
+
+        # Price & Vega vs Volatility
+        vols = np.linspace(0.05, 1.0, 30)
+        price_vs_vol = [round(_black_scholes(S, K, T, r, v, option_type), 4) for v in vols]
+        vega_vs_vol = [_bs_greeks(S, K, T, r, v, option_type)['vega'] for v in vols]
+
+        return jsonify({
+            'spot_curve': {
+                'spots': [round(float(s), 2) for s in spots],
+                'prices': price_vs_spot,
+                'deltas': delta_vs_spot,
+                'gammas': gamma_vs_spot,
+            },
+            'time_curve': {
+                'times': [round(float(t), 4) for t in times],
+                'prices': price_vs_time,
+                'thetas': theta_vs_time,
+            },
+            'vol_curve': {
+                'vols': [round(float(v), 4) for v in vols],
+                'prices': price_vs_vol,
+                'vegas': vega_vs_vol,
+            },
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/options/chain', methods=['POST'])
+def options_chain():
+    try:
+        d = request.json
+        ticker = d['ticker']
+        stock = yf.Ticker(ticker)
+        expirations = list(stock.options) if stock.options else []
+
+        if not expirations:
+            return jsonify({'error': f'No options data available for {ticker}'}), 404
+
+        expiry = d.get('expiry', expirations[0])
+
+        chain = stock.option_chain(expiry)
+        cols = ['strike', 'lastPrice', 'bid', 'ask', 'volume', 'openInterest', 'impliedVolatility']
+
+        calls_df = chain.calls[cols].fillna(0)
+        puts_df = chain.puts[cols].fillna(0)
+
+        calls = calls_df.to_dict('records')
+        puts = puts_df.to_dict('records')
+
+        spot = stock.info.get('currentPrice', stock.info.get('regularMarketPrice', 0))
+
+        return jsonify({
+            'ticker': ticker,
+            'spot_price': float(spot) if spot else 0,
+            'expirations': expirations,
+            'selected_expiry': expiry,
+            'calls': calls,
+            'puts': puts,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/options/implied-vol', methods=['POST'])
+def implied_vol():
+    try:
+        d = request.json
+        iv = _implied_volatility(
+            float(d['market_price']),
+            float(d['spot_price']),
+            float(d['strike_price']),
+            float(d['time_to_expiry']),
+            float(d.get('risk_free_rate', 0.065)),
+            d.get('option_type', 'call'),
+        )
+        if iv is None:
+            return jsonify({'error': 'IV solver did not converge'}), 400
+        return jsonify({'implied_volatility': iv})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Constrained Optimization Endpoint ────────────────────────────────
+@app.route('/api/constrained-optimize', methods=['POST'])
+def constrained_optimize():
+    try:
+        data = request.json
+        tickers = data.get('tickers', [])
+        start_date = data.get('start_date', '2020-01-01')
+        risk_free_rate = data.get('risk_free_rate', 0.065)
+        constraints = data.get('constraints', {})
+        weight_step = data.get('weight_step', 0.05)
+        end_date = datetime.today().strftime("%Y-%m-%d")
+
+        if not tickers or len(tickers) < 2:
+            return jsonify({'error': 'Need at least 2 tickers'}), 400
+        if len(tickers) > 10:
+            return jsonify({'error': 'Maximum 10 tickers for constrained optimization'}), 400
+
+        valid, error = validate_tickers(tickers)
+        if not valid:
+            return jsonify({'error': error}), 400
+
+        # Download prices
+        prices = _fetch_prices(tickers, start_date, end_date)
+        if len(prices) < 30:
+            return jsonify({'error': 'Insufficient data'}), 400
+
+        returns = prices.pct_change().dropna()
+        mean_returns = returns.mean() * 252
+        cov_matrix = returns.cov() * 252
+
+        # Fetch ticker info (sector, dividend yield) in parallel
+        def fetch_info(t):
+            try:
+                info = yf.Ticker(t).info
+                return t, {
+                    'sector': info.get('sector', 'Unknown'),
+                    'dividend_yield': float(info.get('dividendYield', 0) or 0),
+                    'recommendation': info.get('recommendationKey', 'N/A'),
+                }
+            except Exception:
+                return t, {'sector': 'Unknown', 'dividend_yield': 0, 'recommendation': 'N/A'}
+
+        ticker_info = {}
+        with ThreadPoolExecutor(max_workers=min(len(tickers), 6)) as executor:
+            futures = [executor.submit(fetch_info, t) for t in tickers]
+            for f in as_completed(futures):
+                t, info = f.result()
+                ticker_info[t] = info
+
+        portfolios, explored, pruned_count = _backtrack_portfolios(
+            tickers, mean_returns, cov_matrix, constraints,
+            ticker_info, risk_free_rate, weight_step
+        )
+
+        # Add dividend yield and sector info to each portfolio
+        for p in portfolios:
+            p['dividend_yield'] = round(sum(
+                p['weights'][t] * ticker_info.get(t, {}).get('dividend_yield', 0)
+                for t in tickers
+            ), 4)
+            sector_alloc = {}
+            for t in tickers:
+                sec = ticker_info.get(t, {}).get('sector', 'Unknown')
+                sector_alloc[sec] = sector_alloc.get(sec, 0) + p['weights'][t]
+            p['sector_allocation'] = {k: round(v, 4) for k, v in sector_alloc.items()}
+
+        return jsonify({
+            'valid_portfolios': portfolios,
+            'total_explored': explored,
+            'total_pruned': pruned_count,
+            'total_valid': len(portfolios),
+            'ticker_info': ticker_info,
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/sensitivities', methods=['POST'])
+def sensitivities():
+    try:
+        data = request.json
+        tickers = data.get('tickers', [])
+        weights = data.get('weights', {})
+        start_date = data.get('start_date', '2020-01-01')
+        risk_free_rate = data.get('risk_free_rate', 0.065)
+        end_date = datetime.today().strftime("%Y-%m-%d")
+
+        if not tickers or not weights:
+            return jsonify({'error': 'tickers and weights required'}), 400
+
+        valid, error = validate_tickers(tickers)
+        if not valid:
+            return jsonify({'error': error}), 400
+
+        prices = _fetch_prices(tickers, start_date, end_date)
+
+        returns = prices.pct_change().dropna()
+        mean_returns = returns.mean() * 252
+        cov_matrix = returns.cov() * 252
+
+        result = _compute_sensitivities(weights, tickers, mean_returns, cov_matrix, risk_free_rate)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── HRP Endpoint ─────────────────────────────────────────────────────
+@app.route('/api/hrp', methods=['POST'])
+def hrp_endpoint():
+    try:
+        data = request.json
+        tickers = data.get('tickers', [])
+        start_date = data.get('start_date', '2020-01-01')
+        end_date = datetime.today().strftime('%Y-%m-%d')
+
+        if not tickers or len(tickers) < 2:
+            return jsonify({'error': 'Need at least 2 tickers for HRP'}), 400
+
+        prices = _fetch_prices(tickers, start_date, end_date)
+        if prices.empty or len(prices) < 30:
+            return jsonify({'error': 'Insufficient price data'}), 400
+
+        # Ensure all tickers are present
+        missing = [t for t in tickers if t not in prices.columns]
+        if missing:
+            return jsonify({'error': f'No data for: {", ".join(missing)}'}), 400
+
+        returns = prices[tickers].pct_change().dropna()
+        result = _hrp_optimize(returns)
+        return jsonify(result)
+
+    except Exception as e:
+        print(f'HRP error: {e}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'HRP failed: {str(e)}'}), 500
+
+# ── Black-Litterman Endpoint ─────────────────────────────────────────
+@app.route('/api/black-litterman', methods=['POST'])
+def black_litterman_endpoint():
+    try:
+        data = request.json
+        tickers = data.get('tickers', [])
+        start_date = data.get('start_date', '2020-01-01')
+        market_caps = data.get('market_caps', None)
+        views = data.get('views', None)
+        use_sentiment = data.get('use_sentiment', True)
+        end_date = datetime.today().strftime('%Y-%m-%d')
+
+        if not tickers or len(tickers) < 2:
+            return jsonify({'error': 'Need at least 2 tickers'}), 400
+
+        prices = _fetch_prices(tickers, start_date, end_date)
+        if prices.empty or len(prices) < 30:
+            return jsonify({'error': 'Insufficient price data'}), 400
+
+        returns = prices[tickers].pct_change().dropna()
+        cov_matrix = (returns.cov() * 252).values
+
+        # Fetch market caps if not provided
+        if market_caps is None:
+            market_caps = []
+            def fetch_mcap(t):
+                try:
+                    info = yf.Ticker(t).info
+                    return info.get('marketCap', 1e9)
+                except Exception:
+                    return 1e9
+            with ThreadPoolExecutor(max_workers=6) as ex:
+                futures = {ex.submit(fetch_mcap, t): t for t in tickers}
+                mcap_dict = {}
+                for f in as_completed(futures):
+                    mcap_dict[futures[f]] = f.result()
+            market_caps = [mcap_dict[t] for t in tickers]
+
+        # Generate views from sentiment or use provided views
+        sentiment_scores = {}
+        P, Q = np.array([]).reshape(0, len(tickers)), np.array([])
+
+        if views:
+            P = np.array(views.get('P', []))
+            Q = np.array(views.get('Q', []))
+        elif use_sentiment:
+            # Run sentiment analysis on Tiingo news
+            for t in tickers:
+                try:
+                    articles = _tiingo_news([t], limit=10)
+                    if articles:
+                        texts = ' '.join([a.get('title', '') + ' ' + a.get('description', '') for a in articles])
+                        # Simple keyword-based sentiment
+                        positive = sum(1 for w in ['upgrade', 'beat', 'strong', 'growth', 'profit', 'record', 'surge',
+                                                    'outperform', 'positive', 'bullish', 'buy', 'rally'] if w in texts.lower())
+                        negative = sum(1 for w in ['downgrade', 'miss', 'weak', 'decline', 'loss', 'risk', 'sell',
+                                                    'bearish', 'warning', 'crash', 'default', 'cut'] if w in texts.lower())
+                        total = positive + negative
+                        sentiment_scores[t] = (positive - negative) / max(total, 1)
+                    else:
+                        sentiment_scores[t] = 0
+                except Exception:
+                    sentiment_scores[t] = 0
+
+            P, Q = _sentiment_to_views(sentiment_scores, tickers)
+
+        # Run Black-Litterman
+        bl_result = _black_litterman(market_caps, cov_matrix, P, Q)
+
+        # Map weights back to tickers
+        weights = {tickers[i]: float(bl_result['weights'][i]) for i in range(len(tickers))}
+        expected_rets = {tickers[i]: float(bl_result['expected_returns'][i]) for i in range(len(tickers))}
+        implied_rets = {tickers[i]: float(bl_result['implied_returns'][i]) for i in range(len(tickers))}
+
+        views_applied = []
+        if len(P) > 0:
+            for k in range(len(Q)):
+                asset_idx = np.argmax(P[k])
+                views_applied.append({
+                    'ticker': tickers[asset_idx],
+                    'view_return': float(Q[k]),
+                    'sentiment': float(sentiment_scores.get(tickers[asset_idx], 0)),
+                })
+
+        return jsonify({
+            'weights': weights,
+            'expected_returns': expected_rets,
+            'implied_returns': implied_rets,
+            'views_applied': views_applied,
+            'sentiment_scores': sentiment_scores,
+        })
+
+    except Exception as e:
+        print(f'Black-Litterman error: {e}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Black-Litterman failed: {str(e)}'}), 500
+
+# ── Backtesting Endpoint ─────────────────────────────────────────────
+@app.route('/api/backtest', methods=['POST'])
+def backtest_endpoint():
+    try:
+        data = request.json
+        tickers = data.get('tickers', [])
+        weights = data.get('weights', {})
+        start_date = data.get('start_date', '2018-01-01')
+        end_date = data.get('end_date', datetime.today().strftime('%Y-%m-%d'))
+        rebalance_freq = data.get('rebalance_freq', 'monthly')
+        fee_pct = float(data.get('fee_pct', 0.001))
+        slippage_factor = float(data.get('slippage_factor', 0.05))
+        benchmark = data.get('benchmark', 'SPY')
+
+        if not tickers or len(tickers) < 1:
+            return jsonify({'error': 'Need at least 1 ticker'}), 400
+
+        if not weights:
+            # Equal weights if not provided
+            weights = {t: 1.0 / len(tickers) for t in tickers}
+
+        result = _backtest_portfolio(tickers, weights, start_date, end_date,
+                                      rebalance_freq, fee_pct, slippage_factor, benchmark)
+        return jsonify(result)
+
+    except Exception as e:
+        print(f'Backtest error: {e}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Backtest failed: {str(e)}'}), 500
+
+# ── Volatility Surface Endpoint ──────────────────────────────────────
+@app.route('/api/options/vol-surface', methods=['POST'])
+def vol_surface():
+    try:
+        data = request.json
+        ticker = data['ticker']
+        stock = yf.Ticker(ticker)
+        expirations = stock.options
+
+        if not expirations:
+            return jsonify({'error': f'No options data for {ticker}'}), 404
+
+        spot = stock.info.get('currentPrice', stock.info.get('regularMarketPrice', 100))
+        today = datetime.today()
+
+        strikes_all = set()
+        surface_data = []
+
+        for exp in expirations[:8]:  # Limit to 8 expiries for performance
+            try:
+                chain = stock.option_chain(exp)
+                calls = chain.calls
+                exp_date = datetime.strptime(exp, '%Y-%m-%d')
+                dte = max((exp_date - today).days, 1)
+
+                for _, row in calls.iterrows():
+                    iv = row.get('impliedVolatility', 0)
+                    strike = row.get('strike', 0)
+                    if iv > 0.01 and strike > 0:
+                        strikes_all.add(float(strike))
+                        surface_data.append({
+                            'strike': float(strike),
+                            'dte': dte,
+                            'iv': float(iv),
+                        })
+            except Exception:
+                continue
+
+        if not surface_data:
+            return jsonify({'error': 'No valid IV data found'}), 404
+
+        # Build matrix
+        strikes_sorted = sorted(strikes_all)
+        expiries_sorted = sorted(set(d['dte'] for d in surface_data))
+
+        iv_matrix = []
+        for dte in expiries_sorted:
+            row = []
+            dte_data = {d['strike']: d['iv'] for d in surface_data if d['dte'] == dte}
+            for s in strikes_sorted:
+                row.append(dte_data.get(s, None))
+            # Interpolate None values
+            for i in range(len(row)):
+                if row[i] is None:
+                    # Find nearest non-None values
+                    left = right = None
+                    for j in range(i - 1, -1, -1):
+                        if row[j] is not None:
+                            left = row[j]
+                            break
+                    for j in range(i + 1, len(row)):
+                        if row[j] is not None:
+                            right = row[j]
+                            break
+                    if left and right:
+                        row[i] = (left + right) / 2
+                    elif left:
+                        row[i] = left
+                    elif right:
+                        row[i] = right
+                    else:
+                        row[i] = 0.3  # default
+            iv_matrix.append(row)
+
+        return jsonify({
+            'strikes': strikes_sorted,
+            'expiries': expiries_sorted,
+            'iv_matrix': iv_matrix,
+            'spot_price': float(spot),
+            'ticker': ticker,
+        })
+
+    except Exception as e:
+        print(f'Vol surface error: {e}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Vol surface failed: {str(e)}'}), 500
+
+
 if __name__ == '__main__':
     print("Starting Portfolio Optimizer Backend...")
     print("Server running on http://localhost:5000")
     print(f"News API configured: {NEWS_API_KEY is not None}")
     print(f"OpenAI configured: {openai_client is not None}")
+    print(f"Tiingo configured: {TIINGO_API_KEY is not None}")
     socketio.run(app, debug=True, port=5000, allow_unsafe_werkzeug=True)

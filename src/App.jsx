@@ -7,19 +7,25 @@ import Header from './components/layout/Header';
 import ToastContainer from './components/ui/Toast';
 import Loading from './components/ui/Loading';
 import LoginPage from './components/auth/LoginPage';
+import DashboardPanel from './components/dashboard/DashboardPanel';
 import PortfolioPanel from './components/portfolio/PortfolioPanel';
 import AnalysisPanel from './components/analysis/AnalysisPanel';
+import BacktestPanel from './components/backtest/BacktestPanel';
 import OptimizePanel from './components/optimize/OptimizePanel';
 import RiskPanel from './components/risk/RiskPanel';
 import MarketPanel from './components/market/MarketPanel';
 import LivePanel from './components/live/LivePanel';
 import RetirementPanel from './components/retirement/RetirementPanel';
+import OptionsPanel from './components/options/OptionsPanel';
 
 const panels = {
+  dashboard: DashboardPanel,
   portfolio: PortfolioPanel,
   analysis: AnalysisPanel,
   optimize: OptimizePanel,
   risk: RiskPanel,
+  backtest: BacktestPanel,
+  options: OptionsPanel,
   market: MarketPanel,
   live: LivePanel,
   retirement: RetirementPanel,
@@ -45,7 +51,7 @@ export default function App() {
     return <LoginPage />;
   }
 
-  const ActivePanel = panels[activeTab] || PortfolioPanel;
+  const ActivePanel = panels[activeTab] || DashboardPanel;
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface-900 dark:bg-surface-900 bg-surface-50">

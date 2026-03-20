@@ -5,8 +5,9 @@ const AppContext = createContext(null);
 
 export function AppProvider({ children }) {
   const [holdings, setHoldings] = useLocalStorage('bloom_holdings', []);
+  const [optionsHoldings, setOptionsHoldings] = useLocalStorage('bloom_options', []);
   const [darkMode, setDarkMode] = useLocalStorage('bloom_dark', true);
-  const [activeTab, setActiveTab] = useState('portfolio');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [toasts, setToasts] = useState([]);
 
   const addHolding = useCallback((ticker, quantity) => {
@@ -45,6 +46,23 @@ export function AppProvider({ children }) {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
+  const addOptionHolding = useCallback((option) => {
+    setOptionsHoldings(prev => [...prev, { id: Date.now(), ...option }]);
+  }, [setOptionsHoldings]);
+
+  const removeOptionHolding = useCallback((id) => {
+    setOptionsHoldings(prev => prev.filter(o => o.id !== id));
+  }, [setOptionsHoldings]);
+
+  const reorderHoldings = useCallback((startIndex, endIndex) => {
+    setHoldings(prev => {
+      const result = Array.from(prev);
+      const [removed] = result.splice(startIndex, 1);
+      result.splice(endIndex, 0, removed);
+      return result;
+    });
+  }, [setHoldings]);
+
   const toggleDark = useCallback(() => {
     setDarkMode(prev => !prev);
   }, [setDarkMode]);
@@ -60,7 +78,8 @@ export function AppProvider({ children }) {
     <AppContext.Provider
       value={{
         holdings, tickers, holdingsMap,
-        addHolding, removeHolding, updateHolding,
+        addHolding, removeHolding, updateHolding, reorderHoldings,
+        optionsHoldings, addOptionHolding, removeOptionHolding,
         darkMode, toggleDark,
         activeTab, setActiveTab,
         toasts, notify, dismissToast,

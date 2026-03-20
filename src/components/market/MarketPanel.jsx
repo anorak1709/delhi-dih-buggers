@@ -155,17 +155,38 @@ export default function MarketPanel() {
             )}
             {sentimentByTicker && !sentimentLoading && (
               <div className="space-y-4">
-                {Object.entries(sentimentByTicker).map(([ticker, s]) => (
-                  <div key={ticker} className="border-b border-surface-700/20 dark:border-surface-700/20 border-surface-100 pb-3 last:border-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-semibold text-surface-200 dark:text-surface-200 text-surface-700">{ticker}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm tabular-nums text-surface-300 dark:text-surface-300 text-surface-600">{s.sentiment?.toFixed(2)}</span>
-                        <SentimentBadge score={s.sentiment} />
+                {Object.entries(sentimentByTicker).map(([ticker, s]) => {
+                  const score = s.sentiment || 0;
+                  const suggestion = score > 0.5
+                    ? 'Consider increasing weight'
+                    : score < -0.5
+                    ? 'Consider reducing weight'
+                    : 'Hold current position';
+                  const suggestionColor = score > 0.5
+                    ? 'text-up'
+                    : score < -0.5
+                    ? 'text-down'
+                    : 'text-amber-400';
+                  return (
+                    <div key={ticker} className="border-b border-surface-700/20 dark:border-surface-700/20 border-surface-100 pb-3 last:border-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-semibold text-surface-200 dark:text-surface-200 text-surface-700">{ticker}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm tabular-nums text-surface-300 dark:text-surface-300 text-surface-600">{score.toFixed(2)}</span>
+                          <SentimentBadge score={score} />
+                        </div>
+                      </div>
+                      <p className={`text-2xs ${suggestionColor} mt-0.5`}>{suggestion}</p>
+                      {/* Sentiment bar */}
+                      <div className="mt-1.5 h-1.5 w-full bg-surface-700/30 dark:bg-surface-700/30 bg-surface-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${score > 0.05 ? 'bg-up' : score < -0.05 ? 'bg-down' : 'bg-amber-400'}`}
+                          style={{ width: `${Math.min(Math.abs(score) * 100, 100)}%`, marginLeft: score < 0 ? 'auto' : '0' }}
+                        />
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Card>

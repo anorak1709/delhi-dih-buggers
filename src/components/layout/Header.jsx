@@ -3,10 +3,13 @@ import { useAuth } from '../../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const tabLabels = {
+  dashboard: 'Dashboard',
   portfolio: 'Portfolio',
   analysis: 'Performance Analysis',
   optimize: 'Portfolio Optimization',
   risk: 'Risk Management',
+  backtest: 'Backtesting',
+  options: 'Options Pricing',
   market: 'Market Intelligence',
   live: 'Live Prices',
   retirement: 'Retirement Planning',

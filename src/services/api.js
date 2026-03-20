@@ -28,8 +28,8 @@ export function analyzePortfolio(holdings, benchmark = '^NSEI', startDate = '201
   return post('/api/analyze', { holdings, benchmark, start_date: startDate, risk_free_rate: riskFreeRate });
 }
 
-export function optimizePortfolio(tickers, startDate = '2018-01-01', numPortfolios = 10000, riskFreeRate = 0.065) {
-  return post('/api/optimize', { tickers, start_date: startDate, num_portfolios: numPortfolios, risk_free_rate: riskFreeRate });
+export function optimizePortfolio(tickers, startDate = '2018-01-01', numPortfolios = 10000, riskFreeRate = 0.065, method = 'standard') {
+  return post('/api/optimize', { tickers, start_date: startDate, num_portfolios: numPortfolios, risk_free_rate: riskFreeRate, method });
 }
 
 export function getCorrelation(tickers, startDate = '2018-01-01') {
@@ -122,6 +122,51 @@ export function getLiveAnalysis(tickers) {
 // ── AI Agent ────────────────────────────────────────────────────
 export function askAIAgent(query, tickers = []) {
   return post('/api/ai-agent', { query, tickers });
+}
+
+// ── Constrained Optimization ─────────────────────────────────────────
+export function constrainedOptimize(tickers, startDate, riskFreeRate, constraints, weightStep) {
+  return post('/api/constrained-optimize', { tickers, start_date: startDate, risk_free_rate: riskFreeRate, constraints, weight_step: weightStep });
+}
+
+export function getSensitivities(tickers, weights, startDate, riskFreeRate) {
+  return post('/api/sensitivities', { tickers, weights, start_date: startDate, risk_free_rate: riskFreeRate });
+}
+
+// ── Options ──────────────────────────────────────────────────────────
+export function getOptionsPrice(params) {
+  return post('/api/options/price', params);
+}
+
+export function getOptionsGreeksCurves(params) {
+  return post('/api/options/greeks', params);
+}
+
+export function getOptionsChain(ticker, expiry) {
+  return post('/api/options/chain', { ticker, expiry });
+}
+
+export function getImpliedVol(params) {
+  return post('/api/options/implied-vol', params);
+}
+
+// ── HRP & Black-Litterman ────────────────────────────────────────────
+export function getHRP(tickers, startDate = '2020-01-01') {
+  return post('/api/hrp', { tickers, start_date: startDate });
+}
+
+export function getBlackLitterman(tickers, startDate = '2020-01-01', marketCaps = null, views = null, useSentiment = true) {
+  return post('/api/black-litterman', { tickers, start_date: startDate, market_caps: marketCaps, views, use_sentiment: useSentiment });
+}
+
+// ── Backtesting ──────────────────────────────────────────────────────
+export function runBacktest(params) {
+  return post('/api/backtest', params);
+}
+
+// ── Volatility Surface ───────────────────────────────────────────────
+export function getVolSurface(ticker) {
+  return post('/api/options/vol-surface', { ticker });
 }
 
 // ── System ──────────────────────────────────────────────────────
