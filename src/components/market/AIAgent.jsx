@@ -117,7 +117,7 @@ export default function AIAgent() {
       <div className="px-5 pt-5 pb-3">
         <CardHeader
           title="Bloom AI Research Agent"
-          subtitle="Powered by Gemini — Ask about any stock in your portfolio"
+          subtitle="Powered by OpenAI — Ask about any stock in your portfolio"
         />
       </div>
 

@@ -21,17 +21,16 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Configuration
 NEWS_API_KEY = os.environ.get('NEWS_API_KEY', None)  # Get from environment variable
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', None)
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', None)
 
-# Configure Gemini if API key is available
-genai = None
-if GEMINI_API_KEY:
+# Configure OpenAI if API key is available
+openai_client = None
+if OPENAI_API_KEY:
     try:
-        import google.generativeai as _genai
-        _genai.configure(api_key=GEMINI_API_KEY)
-        genai = _genai
+        from openai import OpenAI
+        openai_client = OpenAI(api_key=OPENAI_API_KEY)
     except ImportError:
-        print("Warning: google-generativeai not installed. AI agent will not be available.")
+        print("Warning: openai not installed. AI agent will not be available. Run: pip install openai")
 
 @socketio.on('subscribe_prices')
 def stream_prices(data):
@@ -1666,9 +1665,9 @@ def _gather_stock_context(ticker):
 
 @app.route('/api/ai-agent', methods=['POST'])
 def ai_agent():
-    if not genai:
+    if not openai_client:
         return jsonify({
-            'error': 'AI agent not configured. Install google-generativeai and set GEMINI_API_KEY environment variable.'
+            'error': 'AI agent not configured. Install openai and set OPENAI_API_KEY environment variable.'
         }), 503
 
     try:
@@ -1711,18 +1710,19 @@ USER QUESTION: {query}
 
 Please provide a thorough, well-researched response based on the data above."""
 
-        # Call Gemini
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        response = model.generate_content(
-            [{'role': 'user', 'parts': [f"{system_prompt}\n\n{user_prompt}"]}],
-            generation_config={
-                'temperature': 0.7,
-                'max_output_tokens': 2048,
-            }
+        # Call OpenAI
+        response = openai_client.chat.completions.create(
+            model='gpt-4o-mini',
+            messages=[
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': user_prompt},
+            ],
+            temperature=0.7,
+            max_tokens=2048,
         )
 
         return jsonify({
-            'response': response.text,
+            'response': response.choices[0].message.content,
             'tickers_analyzed': analyzed_tickers,
             'timestamp': datetime.now().isoformat(),
         })
@@ -1734,5 +1734,5 @@ if __name__ == '__main__':
     print("Starting Portfolio Optimizer Backend...")
     print("Server running on http://localhost:5000")
     print(f"News API configured: {NEWS_API_KEY is not None}")
-    print(f"Gemini AI configured: {genai is not None}")
+    print(f"OpenAI configured: {openai_client is not None}")
     socketio.run(app, debug=True, port=5000, allow_unsafe_werkzeug=True)

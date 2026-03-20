@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**Bloom Analytics (Portfolio Optimizer Pro)** — a web app providing institutional-grade portfolio analytics powered by Monte Carlo simulations. React frontend with a Flask (Python) backend. Features Firebase authentication, an AI-powered stock research agent (Google Gemini), and enriched live market tracking.
+**Bloom Analytics (Portfolio Optimizer Pro)** — a web app providing institutional-grade portfolio analytics powered by Monte Carlo simulations. React frontend with a Flask (Python) backend. Features Firebase authentication, an AI-powered stock research agent (OpenAI), and enriched live market tracking.
 
 ## Tech Stack
 
@@ -10,7 +10,7 @@
 - **Charts**: Chart.js (react-chartjs-2), Plotly.js (react-plotly.js)
 - **Real-time**: Socket.IO client
 - **Auth**: Firebase Authentication (email/password)
-- **AI Agent**: Google Gemini 2.0 Flash via `google-generativeai` Python SDK (RAG pipeline with yfinance data)
+- **AI Agent**: OpenAI 2.0 Flash via `openai` Python SDK (RAG pipeline with yfinance data)
 - **Backend**: Flask (Python) with Yahoo Finance data, NumPy/SciPy/Pandas
 - **Build**: Vite dev server on port 3000, proxies `/api` and `/socket.io` to Flask on port 5000
 - **Fonts**: Cormorant Garamond (display), Plus Jakarta Sans (sans)
@@ -35,7 +35,7 @@ src/
     risk/              # RiskPanel — VaR/CVaR, rolling Sharpe, scenario & stress tests
     market/
       MarketPanel.jsx  # AI agent, sectors, sentiment, news (no more indices/treasury)
-      AIAgent.jsx      # Gemini-powered RAG chat for stock research & advice
+      AIAgent.jsx      # OpenAI-powered RAG chat for stock research & advice
     live/              # LivePanel — enriched ticker cards with sparklines, sentiment, headlines
     retirement/        # RetirementPanel — retirement planning with probability cone
     ui/                # Reusable UI: Button, Card, Input, Loading, Toast, Motion
@@ -54,8 +54,8 @@ ft.html, app.js, style.css  # Legacy backup files
 ## Running the App
 
 1. **Backend**: `python new.py` (runs on port 5000)
-   - Requires: `pip install flask flask-cors flask-socketio yfinance numpy pandas scipy matplotlib google-generativeai`
-   - Set `GEMINI_API_KEY` environment variable for the AI agent feature
+   - Requires: `pip install flask flask-cors flask-socketio yfinance numpy pandas scipy matplotlib openai`
+   - Set `OPENAI_API_KEY` environment variable for the AI agent feature
 2. **Frontend**: `npm run dev` (runs on port 3000, proxies `/api` to backend)
 3. **Firebase**: Configure `.env` with your Firebase project credentials (`VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, etc.)
 
@@ -68,7 +68,7 @@ ft.html, app.js, style.css  # Legacy backup files
 ## Key Backend Endpoints
 
 - `POST /api/live-analysis` — Enriched data per ticker: price, mini chart, sentiment, headlines (parallelized with ThreadPoolExecutor)
-- `POST /api/ai-agent` — RAG pipeline: gathers yfinance data (financials, recommendations, news, 1Y performance) → builds context → calls Gemini 2.0 Flash
+- `POST /api/ai-agent` — RAG pipeline: gathers yfinance data (financials, recommendations, news, 1Y performance) → builds context → calls OpenAI 2.0 Flash
 - `POST /api/prices` — Current prices & daily changes
 - `POST /api/analyze` — Portfolio performance vs benchmark
 - `POST /api/optimize` — Monte Carlo optimization (10k+ simulations)
@@ -86,4 +86,4 @@ ft.html, app.js, style.css  # Legacy backup files
 - Use `AppContext` for shared portfolio/UI state, `AuthContext` for authentication state
 - Backend API runs on port 5000; frontend proxies `/api` routes to it
 - `.env` contains `VITE_API_URL` and Firebase config — do not commit `.env` files
-- The AI agent feature requires `GEMINI_API_KEY` set as a backend environment variable
+- The AI agent feature requires `OPENAI_API_KEY` set as a backend environment variable
