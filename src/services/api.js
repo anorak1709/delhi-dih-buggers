@@ -74,10 +74,6 @@ export function getDividends(tickers) {
   return post('/api/dividends', { tickers });
 }
 
-export function getEconomicIndicators() {
-  return get('/api/economic-indicators');
-}
-
 export function getSentiment(tickers) {
   return post('/api/sentiment', { tickers });
 }
