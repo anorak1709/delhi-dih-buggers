@@ -46,7 +46,7 @@ export default function ToastContainer() {
             exit={{ opacity: 0, x: 80, scale: 0.9, filter: 'blur(2px)' }}
             transition={{ type: 'spring', stiffness: 350, damping: 25 }}
             whileHover={{ scale: 1.02, x: -4 }}
-            className={`flex items-center gap-3 rounded-lg border border-surface-700/80 dark:border-surface-700/80 border-surface-200 border-l-2 ${toastBorder[t.type] || 'border-l-info'} bg-surface-800/90 dark:bg-surface-800/90 bg-white backdrop-blur-md px-4 py-3 shadow-xl max-w-sm cursor-pointer`}
+            className={`flex items-center gap-3 rounded-lg border border-surface-700/80 dark:border-surface-700/80 border-surface-200 border-l-2 ${toastBorder[t.type] || 'border-l-info'} glass dark:glass bg-white/70 backdrop-blur-xl px-4 py-3 shadow-xl max-w-sm cursor-pointer`}
             onClick={() => dismissToast(t.id)}
           >
             {icons[t.type] || icons.info}

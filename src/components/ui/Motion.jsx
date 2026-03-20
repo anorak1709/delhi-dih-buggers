@@ -5,23 +5,24 @@ export const stagger = {
   container: {
     hidden: {},
     show: {
-      transition: { staggerChildren: 0.06, delayChildren: 0.04 },
+      transition: { staggerChildren: 0.08, delayChildren: 0.06 },
     },
   },
   item: {
-    hidden: { opacity: 0, y: 16, filter: 'blur(4px)' },
+    hidden: { opacity: 0, y: 24, filter: 'blur(8px)', scale: 0.95 },
     show: {
       opacity: 1,
       y: 0,
       filter: 'blur(0px)',
-      transition: { type: 'spring', stiffness: 300, damping: 24 },
+      scale: 1,
+      transition: { type: 'spring', stiffness: 280, damping: 22 },
     },
   },
 };
 
 // ── Panel page transition ──────────────────────────────────────
 export const pageTransition = {
-  initial: { opacity: 0, y: 20, filter: 'blur(6px)' },
+  initial: { opacity: 0, y: 30, filter: 'blur(10px)', scale: 0.98 },
   animate: {
     opacity: 1,
     y: 0,
@@ -38,7 +39,7 @@ export const pageTransition = {
 
 // ── Fade in from bottom (cards, sections) ──────────────────────
 export const fadeUp = {
-  initial: { opacity: 0, y: 24 },
+  initial: { opacity: 0, y: 32, scale: 0.97 },
   animate: {
     opacity: 1,
     y: 0,
@@ -112,6 +113,15 @@ export function StaggerItem({ children, className = '' }) {
     </motion.div>
   );
 }
+
+// ── Float animation for decorative elements ────────────────────
+export const float = {
+  initial: { y: 0 },
+  animate: {
+    y: [-4, 4, -4],
+    transition: { duration: 6, repeat: Infinity, ease: 'easeInOut' },
+  },
+};
 
 // ── Number counter animation ───────────────────────────────────
 export { motion, AnimatePresence };

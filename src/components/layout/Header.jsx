@@ -20,7 +20,7 @@ export default function Header() {
   const { user, logOut } = useAuth();
 
   return (
-    <header className="flex items-center justify-between px-6 lg:px-8 py-4 border-b border-surface-700/40 dark:border-surface-700/40 border-surface-200 bg-surface-850/30 dark:bg-surface-850/30 bg-white/60 backdrop-blur-md shrink-0">
+    <header className="flex items-center justify-between px-6 lg:px-8 py-4 border-b border-surface-700/40 dark:border-surface-700/40 border-surface-200 glass-subtle dark:glass-subtle bg-white/50 backdrop-blur-xl shrink-0">
       <div className="flex items-center gap-4">
         {/* Mobile menu */}
         <div className="md:hidden flex items-center gap-3">

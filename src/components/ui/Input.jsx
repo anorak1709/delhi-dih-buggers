@@ -8,13 +8,13 @@ export default function Input({ label, className = '', ...props }) {
       )}
       <input
         className={`
-          w-full rounded-lg px-3.5 py-2 text-sm
-          bg-surface-850/80 dark:bg-surface-850/80 bg-surface-50
-          border border-surface-700/60 dark:border-surface-700/60 border-surface-200
+          w-full rounded-xl px-4 py-2.5 text-sm
+          glass-input
           text-surface-50 dark:text-surface-50 text-surface-900
           placeholder:text-surface-600 dark:placeholder:text-surface-600 placeholder:text-surface-400
-          focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
-          transition-colors duration-200
+          focus:outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15
+          focus:shadow-[0_0_20px_rgba(201,152,90,0.08)]
+          transition-all duration-300
         `.replace(/\n\s+/g, ' ').trim()}
         {...props}
       />
@@ -32,12 +32,12 @@ export function Select({ label, children, className = '', ...props }) {
       )}
       <select
         className={`
-          w-full rounded-lg px-3.5 py-2 text-sm
-          bg-surface-850/80 dark:bg-surface-850/80 bg-surface-50
-          border border-surface-700/60 dark:border-surface-700/60 border-surface-200
+          w-full rounded-xl px-4 py-2.5 text-sm
+          glass-input
           text-surface-50 dark:text-surface-50 text-surface-900
-          focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
-          transition-colors duration-200 cursor-pointer
+          focus:outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15
+          focus:shadow-[0_0_20px_rgba(201,152,90,0.08)]
+          transition-all duration-300 cursor-pointer
         `.replace(/\n\s+/g, ' ').trim()}
         {...props}
       >

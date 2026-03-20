@@ -56,6 +56,10 @@ export default function App() {
   return (
     <div className="flex h-screen overflow-hidden bg-surface-900 dark:bg-surface-900 bg-surface-50">
       <div className="grain-overlay" />
+      {/* Background orbs */}
+      <div className="orb orb-1" />
+      <div className="orb orb-2" />
+      <div className="orb orb-3" />
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0">
         <Header />

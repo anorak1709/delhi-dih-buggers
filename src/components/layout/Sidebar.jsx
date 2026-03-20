@@ -99,7 +99,7 @@ export default function Sidebar() {
   const { activeTab, setActiveTab } = useApp();
 
   return (
-    <aside className="hidden md:flex flex-col w-[220px] border-r border-surface-700/60 dark:border-surface-700/60 border-surface-200 bg-surface-850/50 dark:bg-surface-850/50 bg-white/80 backdrop-blur-xl shrink-0">
+    <aside className="hidden md:flex flex-col w-[220px] border-r border-surface-700/60 dark:border-surface-700/60 border-surface-200 glass dark:glass bg-white/60 backdrop-blur-2xl shrink-0">
       {/* Brand */}
       <motion.div
         className="px-6 pt-7 pb-6"
@@ -140,7 +140,7 @@ export default function Sidebar() {
               {active && (
                 <motion.div
                   layoutId="sidebar-active"
-                  className="absolute inset-0 rounded-lg bg-accent/10 border border-accent/15"
+                  className="absolute inset-0 rounded-lg bg-accent/15 border border-accent/25 shadow-lg shadow-accent/5"
                   transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                 />
               )}
