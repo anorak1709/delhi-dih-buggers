@@ -152,6 +152,20 @@ def apply_scenario(returns, multiplier):
 _cache = {}  # Simple in-memory cache: key -> (data, timestamp)
 _CACHE_TTL = 300  # 5 minutes
 
+def _is_tiingo_supported(ticker):
+    """Check if ticker is supported by Tiingo (US exchanges only).
+    Tiingo does NOT support .NS (India), .L (London), ^indexes, etc."""
+    if not ticker:
+        return False
+    # Non-US suffixes Tiingo can't handle
+    non_us = ('.NS', '.BO', '.L', '.T', '.HK', '.SS', '.SZ', '.AX', '.TO', '.SA', '.KS', '.TW', '.DE', '.PA', '.MI')
+    if any(ticker.upper().endswith(s) for s in non_us):
+        return False
+    # Index tickers like ^NSEI, ^GSPC
+    if ticker.startswith('^'):
+        return False
+    return True
+
 def _cache_get(key):
     if key in _cache:
         data, ts = _cache[key]
@@ -168,6 +182,8 @@ def _tiingo_headers():
 
 def _tiingo_daily(ticker, start, end):
     """Fetch adjusted daily prices from Tiingo. Returns DataFrame with adjClose indexed by date."""
+    if not _is_tiingo_supported(ticker):
+        return None
     cache_key = f'tiingo_daily_{ticker}_{start}_{end}'
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -191,6 +207,8 @@ def _tiingo_daily(ticker, start, end):
 
 def _tiingo_meta(ticker):
     """Fetch company metadata from Tiingo."""
+    if not _is_tiingo_supported(ticker):
+        return {}
     cache_key = f'tiingo_meta_{ticker}'
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -206,6 +224,11 @@ def _tiingo_meta(ticker):
 
 def _tiingo_news(tickers, limit=20):
     """Fetch news from Tiingo News API."""
+    # Filter to only Tiingo-supported tickers
+    supported = [t for t in tickers if _is_tiingo_supported(t)]
+    if not supported:
+        return []
+    tickers = supported
     cache_key = f'tiingo_news_{"_".join(sorted(tickers))}_{limit}'
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -223,6 +246,11 @@ def _tiingo_news(tickers, limit=20):
 
 def _tiingo_iex(tickers):
     """Fetch real-time IEX prices from Tiingo."""
+    # Filter to only Tiingo-supported tickers
+    supported = [t for t in tickers if _is_tiingo_supported(t)]
+    if not supported:
+        return []
+    tickers = supported
     cache_key = f'tiingo_iex_{"_".join(sorted(tickers))}'
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -245,14 +273,14 @@ def _fetch_prices(tickers, start, end):
 
     all_data = {}
     for t in tickers:
-        # Try Tiingo first
-        if TIINGO_API_KEY:
+        # Try Tiingo first (only for US tickers)
+        if TIINGO_API_KEY and _is_tiingo_supported(t):
             df = _tiingo_daily(t, start, end)
             if df is not None and 'adjClose' in df.columns and len(df) > 0:
                 all_data[t] = df['adjClose']
                 continue
 
-        # Fallback to yfinance
+        # Fallback to yfinance (or primary for non-US tickers)
         try:
             yf_data = yf.download(t, start=start, end=end, auto_adjust=True, progress=False)['Close']
             if isinstance(yf_data, pd.DataFrame):
@@ -273,7 +301,7 @@ def _fetch_prices(tickers, start, end):
 
 def _fetch_ohlcv(ticker, start, end):
     """Fetch OHLCV data, Tiingo first then yfinance fallback."""
-    if TIINGO_API_KEY:
+    if TIINGO_API_KEY and _is_tiingo_supported(ticker):
         df = _tiingo_daily(ticker, start, end)
         if df is not None and 'adjClose' in df.columns:
             return pd.DataFrame({
