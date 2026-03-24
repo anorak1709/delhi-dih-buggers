@@ -6,6 +6,8 @@ import Input from '../ui/Input';
 import { Select } from '../ui/Input';
 import Loading from '../ui/Loading';
 import { runBacktest } from '../../services/api';
+import InfoTip from '../ui/Tooltip';
+import { TOOLTIPS } from '../../constants/tooltips';
 import { motion } from 'framer-motion';
 import { Line } from 'react-chartjs-2';
 import {
@@ -141,13 +143,13 @@ export default function BacktestPanel() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <Input label="Start Date" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
           <Input label="End Date" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
-          <Select label="Rebalance" value={rebalFreq} onChange={e => setRebalFreq(e.target.value)}>
+          <Select label={<InfoTip text={TOOLTIPS.rebalance_freq}>Rebalance</InfoTip>} value={rebalFreq} onChange={e => setRebalFreq(e.target.value)}>
             <option value="monthly">Monthly</option>
             <option value="quarterly">Quarterly</option>
             <option value="annual">Annual</option>
           </Select>
-          <Input label="Fees (%)" type="number" value={feePct} onChange={e => setFeePct(e.target.value)} step="0.01" min="0" />
-          <Input label="Slippage (%)" type="number" value={slippage} onChange={e => setSlippage(e.target.value)} step="0.1" min="0" />
+          <Input label={<InfoTip text={TOOLTIPS.fees}>Fees (%)</InfoTip>} type="number" value={feePct} onChange={e => setFeePct(e.target.value)} step="0.01" min="0" />
+          <Input label={<InfoTip text={TOOLTIPS.slippage}>Slippage (%)</InfoTip>} type="number" value={slippage} onChange={e => setSlippage(e.target.value)} step="0.1" min="0" />
           <Input label="Benchmark" type="text" value={benchmark} onChange={e => setBenchmark(e.target.value.toUpperCase())} />
         </div>
         <div className="mt-4">
@@ -170,32 +172,32 @@ export default function BacktestPanel() {
           {/* Metrics Comparison */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <MetricCard
-              label="CAGR"
+              label={<InfoTip text={TOOLTIPS.cagr}>CAGR</InfoTip>}
               portfolio={fmt(result.portfolio_metrics.cagr)}
               benchmark={fmt(result.benchmark_metrics?.cagr)}
             />
             <MetricCard
-              label="Sharpe Ratio"
+              label={<InfoTip text={TOOLTIPS.sharpe}>Sharpe Ratio</InfoTip>}
               portfolio={result.portfolio_metrics.sharpe?.toFixed(2) || '—'}
               benchmark={result.benchmark_metrics?.sharpe?.toFixed(2) || '—'}
             />
             <MetricCard
-              label="Max Drawdown"
+              label={<InfoTip text={TOOLTIPS.max_drawdown}>Max Drawdown</InfoTip>}
               portfolio={fmt(result.portfolio_metrics.max_drawdown)}
               benchmark={fmt(result.benchmark_metrics?.max_drawdown)}
             />
             <MetricCard
-              label="VaR (95%)"
+              label={<InfoTip text={TOOLTIPS.var_95}>VaR (95%)</InfoTip>}
               portfolio={fmt(result.portfolio_metrics.var_95)}
               benchmark={fmt(result.benchmark_metrics?.var_95)}
             />
             <MetricCard
-              label="CVaR (95%)"
+              label={<InfoTip text={TOOLTIPS.cvar_95}>CVaR (95%)</InfoTip>}
               portfolio={fmt(result.portfolio_metrics.cvar_95)}
               benchmark={fmt(result.benchmark_metrics?.cvar_95)}
             />
             <MetricCard
-              label="Volatility"
+              label={<InfoTip text={TOOLTIPS.volatility}>Volatility</InfoTip>}
               portfolio={fmt(result.portfolio_metrics.volatility)}
               benchmark={fmt(result.benchmark_metrics?.volatility)}
             />

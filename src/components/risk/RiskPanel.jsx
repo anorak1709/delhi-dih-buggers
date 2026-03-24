@@ -6,6 +6,8 @@ import Input from '../ui/Input';
 import { Select } from '../ui/Input';
 import Loading from '../ui/Loading';
 import { getRiskMetrics, getRolling, getScenario, getStress } from '../../services/api';
+import InfoTip from '../ui/Tooltip';
+import { TOOLTIPS } from '../../constants/tooltips';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 
@@ -156,25 +158,25 @@ export default function RiskPanel() {
         {metrics && !loading && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
             <RiskMetricCard
-              label="VaR (95%)"
+              label={<InfoTip text={TOOLTIPS.var_95}>VaR (95%)</InfoTip>}
               value={pct(metrics.var)}
               description="Max daily loss at 95% confidence"
               color="text-down"
             />
             <RiskMetricCard
-              label="CVaR (95%)"
+              label={<InfoTip text={TOOLTIPS.cvar_95}>CVaR (95%)</InfoTip>}
               value={pct(metrics.cvar)}
               description="Expected loss beyond VaR"
               color="text-down"
             />
             <RiskMetricCard
-              label="Beta"
+              label={<InfoTip text={TOOLTIPS.beta}>Beta</InfoTip>}
               value={metrics.beta?.toFixed(3)}
               description="Market sensitivity"
               color={metrics.beta > 1 ? 'text-warn' : 'text-up'}
             />
             <RiskMetricCard
-              label="Jensen's Alpha"
+              label={<InfoTip text={TOOLTIPS.alpha}>Jensen's Alpha</InfoTip>}
               value={pct(metrics.alpha)}
               description="Excess return over CAPM"
               color={metrics.alpha >= 0 ? 'text-up' : 'text-down'}
@@ -185,7 +187,7 @@ export default function RiskPanel() {
 
       {/* Rolling Sharpe */}
       <Card>
-        <CardHeader title="Rolling Sharpe Ratio" subtitle="60-day rolling window" />
+        <CardHeader title={<InfoTip text={TOOLTIPS.rolling_sharpe}>Rolling Sharpe Ratio</InfoTip>} subtitle="60-day rolling window" />
         <div className="flex flex-col sm:flex-row gap-3 items-end mb-4">
           <Select
             label="Ticker"

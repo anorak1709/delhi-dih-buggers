@@ -58,8 +58,9 @@ export function getStress(ticker) {
 }
 
 // ── Market Intelligence ─────────────────────────────────────────
-export function getPrices(tickers) {
-  return post('/api/prices', { tickers });
+export async function getPrices(tickers) {
+  const data = await post('/api/prices', { tickers });
+  return data.prices || data;
 }
 
 export function getNews(tickers) {

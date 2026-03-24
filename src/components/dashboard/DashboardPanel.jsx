@@ -4,6 +4,8 @@ import Card, { CardHeader } from '../ui/Card';
 import Button from '../ui/Button';
 import Loading from '../ui/Loading';
 import { getPrices, getRiskMetrics } from '../../services/api';
+import InfoTip from '../ui/Tooltip';
+import { TOOLTIPS } from '../../constants/tooltips';
 import { motion } from 'framer-motion';
 
 function SummaryCard({ label, value, sub, color = 'text-surface-100 dark:text-surface-100 text-surface-800' }) {
@@ -82,7 +84,7 @@ export default function DashboardPanel() {
   let totalChange = 0;
   const holdingDetails = holdings.map(h => {
     const p = priceData?.[h.ticker];
-    const price = p?.price || 0;
+    const price = p?.current_price || 0;
     const change = p?.daily_change || 0;
     const changePct = p?.daily_change_pct || 0;
     const value = price * h.quantity;
@@ -99,24 +101,24 @@ export default function DashboardPanel() {
       {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <SummaryCard
-          label="Total Portfolio Value"
+          label={<InfoTip text={TOOLTIPS.total_value}>Total Portfolio Value</InfoTip>}
           value={fmtCurrency(totalValue)}
           color="text-accent"
         />
         <SummaryCard
-          label="Daily Change"
+          label={<InfoTip text={TOOLTIPS.daily_change}>Daily Change</InfoTip>}
           value={`${totalChange >= 0 ? '+' : ''}${totalChangePct.toFixed(2)}%`}
           sub={`${totalChange >= 0 ? '+' : ''}${fmtCurrency(Math.abs(totalChange))}`}
           color={totalChange >= 0 ? 'text-up' : 'text-down'}
         />
         <SummaryCard
-          label="Value at Risk (95%)"
+          label={<InfoTip text={TOOLTIPS.var_95}>Value at Risk (95%)</InfoTip>}
           value={riskData?.var_95 ? `${(riskData.var_95 * 100).toFixed(2)}%` : '—'}
           sub="Daily parametric VaR"
           color="text-down"
         />
         <SummaryCard
-          label="Sharpe Ratio"
+          label={<InfoTip text={TOOLTIPS.sharpe}>Sharpe Ratio</InfoTip>}
           value={riskData?.sharpe ? riskData.sharpe.toFixed(2) : '—'}
           sub="Risk-adjusted return"
           color="text-info"

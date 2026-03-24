@@ -6,6 +6,8 @@ import Input from '../ui/Input';
 import { Select } from '../ui/Input';
 import Loading from '../ui/Loading';
 import { analyzePortfolio, getCorrelation } from '../../services/api';
+import InfoTip from '../ui/Tooltip';
+import { TOOLTIPS } from '../../constants/tooltips';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 
@@ -157,10 +159,10 @@ export default function AnalysisPanel() {
             <Card hover={false}>
               <CardHeader title="Portfolio" />
               <div className="grid grid-cols-2 gap-4">
-                <MetricCard label="CAGR" value={fmt(result.portfolio.cagr)} color={result.portfolio.cagr >= 0 ? 'text-up' : 'text-down'} />
-                <MetricCard label="Volatility" value={fmt(result.portfolio.annual_vol)} />
-                <MetricCard label="Sharpe Ratio" value={result.portfolio.sharpe?.toFixed(2)} />
-                <MetricCard label="Max Drawdown" value={fmt(result.portfolio.max_drawdown)} color="text-down" />
+                <MetricCard label={<InfoTip text={TOOLTIPS.cagr}>CAGR</InfoTip>} value={fmt(result.portfolio.cagr)} color={result.portfolio.cagr >= 0 ? 'text-up' : 'text-down'} />
+                <MetricCard label={<InfoTip text={TOOLTIPS.volatility}>Volatility</InfoTip>} value={fmt(result.portfolio.annual_vol)} />
+                <MetricCard label={<InfoTip text={TOOLTIPS.sharpe}>Sharpe Ratio</InfoTip>} value={result.portfolio.sharpe?.toFixed(2)} />
+                <MetricCard label={<InfoTip text={TOOLTIPS.max_drawdown}>Max Drawdown</InfoTip>} value={fmt(result.portfolio.max_drawdown)} color="text-down" />
               </div>
             </Card>
             <Card hover={false}>
@@ -190,7 +192,7 @@ export default function AnalysisPanel() {
       {tickers.length >= 2 && (
         <Card>
           <CardHeader
-            title="Correlation Matrix"
+            title={<InfoTip text={TOOLTIPS.correlation}>Correlation Matrix</InfoTip>}
             subtitle="Pearson correlation between asset returns"
             action={
               <Button variant="secondary" size="sm" onClick={runCorrelation} loading={corrLoading}>

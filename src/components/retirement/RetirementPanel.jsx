@@ -5,6 +5,8 @@ import Button from '../ui/Button';
 import Input from '../ui/Input';
 import { Select } from '../ui/Input';
 import Loading from '../ui/Loading';
+import InfoTip from '../ui/Tooltip';
+import { TOOLTIPS } from '../../constants/tooltips';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 
@@ -43,7 +45,7 @@ function SuccessGauge({ rate }) {
           <span className={`text-2xl font-display font-bold tabular-nums ${color}`}>{pct}%</span>
         </div>
       </div>
-      <p className="text-2xs text-surface-500 mt-2 uppercase tracking-wider">Success Rate</p>
+      <p className="text-2xs text-surface-500 mt-2 uppercase tracking-wider"><InfoTip text={TOOLTIPS.success_rate}>Success Rate</InfoTip></p>
     </div>
   );
 }
@@ -225,7 +227,7 @@ export default function RetirementPanel() {
             min="0"
           />
           <Input
-            label="Inflation Rate"
+            label={<InfoTip text={TOOLTIPS.inflation_rate}>Inflation Rate</InfoTip>}
             type="number"
             value={inflationRate}
             onChange={(e) => setInflationRate(e.target.value)}
@@ -257,16 +259,16 @@ export default function RetirementPanel() {
         <>
           {/* Key Outcomes */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <StatCard label="Target Amount" value={fmtCurrency(result.target_amount)} color="text-accent" />
-            <StatCard label="Median Outcome" value={fmtCurrency(result.median)} color="text-surface-100 dark:text-surface-100 text-surface-800" />
+            <StatCard label={<InfoTip text={TOOLTIPS.target_amount}>Target Amount</InfoTip>} value={fmtCurrency(result.target_amount)} color="text-accent" />
+            <StatCard label={<InfoTip text={TOOLTIPS.median_outcome}>Median Outcome</InfoTip>} value={fmtCurrency(result.median)} color="text-surface-100 dark:text-surface-100 text-surface-800" />
             <StatCard
-              label="Safe Withdrawal"
+              label={<InfoTip text={TOOLTIPS.safe_withdrawal}>Safe Withdrawal</InfoTip>}
               value={(result.safe_withdrawal_rate * 100).toFixed(1) + '%'}
               color="text-info"
               sub={`${fmtCurrency(result.safe_annual_income)}/year`}
             />
             <StatCard
-              label="Sustainability"
+              label={<InfoTip text={TOOLTIPS.sustainability}>Sustainability</InfoTip>}
               value={(result.sustainability_rate * 100).toFixed(0) + '%'}
               color={result.sustainability_rate >= 0.8 ? 'text-up' : 'text-warn'}
               sub="Money lasts through retirement"

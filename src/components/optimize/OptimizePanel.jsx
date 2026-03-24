@@ -6,6 +6,8 @@ import Input from '../ui/Input';
 import { Select } from '../ui/Input';
 import Loading from '../ui/Loading';
 import { optimizePortfolio, getHRP, getBlackLitterman } from '../../services/api';
+import InfoTip from '../ui/Tooltip';
+import { TOOLTIPS } from '../../constants/tooltips';
 import ConstrainedOptimize from './ConstrainedOptimize';
 import Plot from 'react-plotly.js';
 
@@ -58,7 +60,7 @@ function HRPSection({ tickers, startDate, notify, fmt }) {
 
   return (
     <Card>
-      <CardHeader title="Hierarchical Risk Parity (HRP)" subtitle="Dendrogram-based allocation — stable and robust" />
+      <CardHeader title={<InfoTip text={TOOLTIPS.hrp}>Hierarchical Risk Parity (HRP)</InfoTip>} subtitle="Dendrogram-based allocation — stable and robust" />
       <Button onClick={run} loading={loading}>Run HRP</Button>
 
       {loading && <div className="mt-4"><Loading text="Computing hierarchical clustering..." /></div>}
@@ -148,7 +150,7 @@ function BlackLittermanSection({ tickers, startDate, notify, fmt }) {
 
   return (
     <Card>
-      <CardHeader title="Black-Litterman Model" subtitle="Bayesian approach combining market equilibrium with AI sentiment views" />
+      <CardHeader title={<InfoTip text={TOOLTIPS.black_litterman}>Black-Litterman Model</InfoTip>} subtitle="Bayesian approach combining market equilibrium with AI sentiment views" />
       <div className="flex items-center gap-4 mb-4">
         <label className="flex items-center gap-2 cursor-pointer">
           <input
@@ -290,7 +292,7 @@ export default function OptimizePanel() {
             className="flex-1"
           />
           <Input
-            label="Simulations"
+            label={<InfoTip text={TOOLTIPS.simulations}>Simulations</InfoTip>}
             type="number"
             value={numSims}
             min="1000"
@@ -300,7 +302,7 @@ export default function OptimizePanel() {
             className="w-full sm:w-36"
           />
           <Select
-            label="MC Method"
+            label={<InfoTip text={TOOLTIPS.mc_method}>MC Method</InfoTip>}
             value={method}
             onChange={(e) => setMethod(e.target.value)}
             className="w-full sm:w-44"

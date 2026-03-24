@@ -6,6 +6,8 @@ import Input from '../ui/Input';
 import { Select } from '../ui/Input';
 import Loading from '../ui/Loading';
 import { getOptionsPrice, getOptionsGreeksCurves, getOptionsChain, getImpliedVol, getPrices, getVolSurface } from '../../services/api';
+import InfoTip from '../ui/Tooltip';
+import { TOOLTIPS } from '../../constants/tooltips';
 import Plot from 'react-plotly.js';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Line } from 'react-chartjs-2';
@@ -111,9 +113,9 @@ export default function OptionsPanel() {
     if (!autoTicker) return;
     try {
       const data = await getPrices([autoTicker]);
-      if (data[autoTicker]) {
-        setSpot(String(data[autoTicker].price || ''));
-        setStrike(String(Math.round(data[autoTicker].price || 0)));
+      if (data?.[autoTicker]) {
+        setSpot(String(data[autoTicker].current_price || ''));
+        setStrike(String(Math.round(data[autoTicker].current_price || 0)));
         notify(`Filled spot price for ${autoTicker}`, 'success');
       }
     } catch (err) {
@@ -261,11 +263,11 @@ export default function OptionsPanel() {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <Input label="Spot Price" type="number" value={spot} onChange={(e) => setSpot(e.target.value)} step="0.01" />
-          <Input label="Strike Price" type="number" value={strike} onChange={(e) => setStrike(e.target.value)} step="0.01" />
-          <Input label="Days to Expiry" type="number" value={expDays} onChange={(e) => setExpDays(e.target.value)} min="1" />
-          <Input label="Risk-Free (%)" type="number" value={rfRate} onChange={(e) => setRfRate(e.target.value)} step="0.1" />
-          <Input label="Volatility (%)" type="number" value={vol} onChange={(e) => setVol(e.target.value)} step="0.1" />
+          <Input label={<InfoTip text={TOOLTIPS.spot_price}>Spot Price</InfoTip>} type="number" value={spot} onChange={(e) => setSpot(e.target.value)} step="0.01" />
+          <Input label={<InfoTip text={TOOLTIPS.strike_price}>Strike Price</InfoTip>} type="number" value={strike} onChange={(e) => setStrike(e.target.value)} step="0.01" />
+          <Input label={<InfoTip text={TOOLTIPS.dte}>Days to Expiry</InfoTip>} type="number" value={expDays} onChange={(e) => setExpDays(e.target.value)} min="1" />
+          <Input label={<InfoTip text={TOOLTIPS.risk_free_rate}>Risk-Free (%)</InfoTip>} type="number" value={rfRate} onChange={(e) => setRfRate(e.target.value)} step="0.1" />
+          <Input label={<InfoTip text={TOOLTIPS.volatility}>Volatility (%)</InfoTip>} type="number" value={vol} onChange={(e) => setVol(e.target.value)} step="0.1" />
           <Select label="Option Type" value={optType} onChange={(e) => setOptType(e.target.value)}>
             <option value="call">Call</option>
             <option value="put">Put</option>
@@ -296,11 +298,11 @@ export default function OptionsPanel() {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              <GreekCard label="Delta (Δ)" value={calcResult.greeks?.delta} sub="Price sensitivity" />
-              <GreekCard label="Gamma (Γ)" value={calcResult.greeks?.gamma} sub="Delta sensitivity" />
-              <GreekCard label="Theta (Θ)" value={calcResult.greeks?.theta} sub="Time decay / day" />
-              <GreekCard label="Vega (ν)" value={calcResult.greeks?.vega} sub="Per 1% vol change" />
-              <GreekCard label="Rho (ρ)" value={calcResult.greeks?.rho} sub="Per 1% rate change" />
+              <GreekCard label={<InfoTip text={TOOLTIPS.delta}>Delta (Δ)</InfoTip>} value={calcResult.greeks?.delta} sub="Price sensitivity" />
+              <GreekCard label={<InfoTip text={TOOLTIPS.gamma}>Gamma (Γ)</InfoTip>} value={calcResult.greeks?.gamma} sub="Delta sensitivity" />
+              <GreekCard label={<InfoTip text={TOOLTIPS.theta}>Theta (Θ)</InfoTip>} value={calcResult.greeks?.theta} sub="Time decay / day" />
+              <GreekCard label={<InfoTip text={TOOLTIPS.vega}>Vega (ν)</InfoTip>} value={calcResult.greeks?.vega} sub="Per 1% vol change" />
+              <GreekCard label={<InfoTip text={TOOLTIPS.rho}>Rho (ρ)</InfoTip>} value={calcResult.greeks?.rho} sub="Per 1% rate change" />
             </div>
           </motion.div>
         )}
@@ -399,9 +401,17 @@ export default function OptionsPanel() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-surface-700/30 dark:border-surface-700/30 border-surface-200">
-                    {['Strike', 'Last', 'Bid', 'Ask', 'Vol', 'OI', 'IV'].map((h) => (
-                      <th key={h} className="py-2 px-2 text-left font-medium text-surface-500 uppercase tracking-wider">
-                        {h}
+                    {[
+                      { label: 'Strike', tip: null },
+                      { label: 'Last', tip: null },
+                      { label: 'Bid', tip: null },
+                      { label: 'Ask', tip: null },
+                      { label: 'Vol', tip: TOOLTIPS.option_vol },
+                      { label: 'OI', tip: TOOLTIPS.open_interest },
+                      { label: 'IV', tip: TOOLTIPS.implied_vol },
+                    ].map((h) => (
+                      <th key={h.label} className="py-2 px-2 text-left font-medium text-surface-500 uppercase tracking-wider">
+                        {h.tip ? <InfoTip text={h.tip}>{h.label}</InfoTip> : h.label}
                       </th>
                     ))}
                   </tr>

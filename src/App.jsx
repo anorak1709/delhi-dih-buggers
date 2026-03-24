@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useApp } from './context/AppContext';
 import { useAuth } from './context/AuthContext';
-import { motion, AnimatePresence, pageTransition } from './components/ui/Motion';
+import { motion } from './components/ui/Motion';
 import Sidebar from './components/layout/Sidebar';
 import Header from './components/layout/Header';
 import ToastContainer from './components/ui/Toast';
@@ -51,8 +51,6 @@ export default function App() {
     return <LoginPage />;
   }
 
-  const ActivePanel = panels[activeTab] || DashboardPanel;
-
   return (
     <div className="flex h-screen overflow-hidden bg-surface-900 dark:bg-surface-900 bg-surface-50">
       <div className="grain-overlay" />
@@ -64,15 +62,21 @@ export default function App() {
       <div className="flex flex-col flex-1 min-w-0">
         <Header />
         <main className="flex-1 overflow-y-auto p-6 lg:p-8">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              {...pageTransition}
-              className="max-w-7xl mx-auto"
-            >
-              <ActivePanel />
-            </motion.div>
-          </AnimatePresence>
+          {Object.entries(panels).map(([tabKey, PanelComponent]) => {
+            const isActive = activeTab === tabKey;
+            return (
+              <motion.div
+                key={tabKey}
+                initial={false}
+                animate={{ opacity: isActive ? 1 : 0 }}
+                transition={{ duration: isActive ? 0.35 : 0 }}
+                style={{ display: isActive ? 'block' : 'none' }}
+                className="max-w-7xl mx-auto"
+              >
+                <PanelComponent />
+              </motion.div>
+            );
+          })}
         </main>
       </div>
       <ToastContainer />
