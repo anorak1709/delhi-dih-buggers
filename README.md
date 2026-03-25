@@ -2,12 +2,20 @@
 <h1 align="center">Bloom Analytics</h1>
 
 <p align="center">
-  <strong>Institutional-grade portfolio analytics, powered by Monte Carlo simulations -- built for everyone.</strong>
+  <a href="https://github.com/anorak1709/delhi-dih-buggers"><img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white" alt="React 18"/></a>
+  <a href="https://github.com/anorak1709/delhi-dih-buggers"><img src="https://img.shields.io/badge/Flask-Python-000000?logo=flask&logoColor=white" alt="Flask"/></a>
+  <a href="https://github.com/anorak1709/delhi-dih-buggers"><img src="https://img.shields.io/badge/Firebase-Auth-FFCA28?logo=firebase&logoColor=black" alt="Firebase"/></a>
+  <a href="https://github.com/anorak1709/delhi-dih-buggers"><img src="https://img.shields.io/badge/OpenAI-GPT--4o--mini-412991?logo=openai&logoColor=white" alt="OpenAI"/></a>
+  <a href="https://github.com/anorak1709/delhi-dih-buggers/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="MIT License"/></a>
+</p>
+
+<p align="center">
+  <strong>Institutional-grade portfolio analytics, powered by Monte Carlo simulations — built for everyone.</strong>
 </p>
 
 <p align="center">
   Turn raw stock tickers into optimized, risk-aware investment strategies in seconds.<br/>
-  Firebase auth. AI-powered research. Glassmorphism UI.
+  Firebase auth · AI-powered research · Glassmorphism UI · 30+ quantitative endpoints
 </p>
 
 ---
@@ -173,8 +181,8 @@ flowchart TB
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/bloom-analytics.git
-cd bloom-analytics
+git clone https://github.com/anorak1709/delhi-dih-buggers.git
+cd delhi-dih-buggers
 
 # Install backend dependencies
 pip install flask flask-cors flask-socketio yfinance numpy pandas scipy matplotlib openai
@@ -296,6 +304,8 @@ The backend exposes **30+ RESTful endpoints**:
 - [x] Glassmorphism design overhaul
 - [x] Hover tooltips on all financial metrics
 - [x] Tab state retention
+- [ ] Advanced risk metrics (Sortino, Calmar, Treynor, Information Ratio, Omega Ratio)
+- [ ] Factor-based portfolio analysis (Fama-French, momentum, quality)
 - [ ] Multi-currency support with FX conversion
 - [ ] CSV/PDF portfolio import and report export
 - [ ] Mobile-native app (React Native)
@@ -356,5 +366,8 @@ This project is open source and available under the [MIT License](LICENSE).
 
 <p align="center">
   <strong>Built with math, not magic.</strong><br/>
-  <sub>Bloom Analytics -- Democratizing quantitative finance.</sub>
+  <sub>Bloom Analytics — Democratizing quantitative finance.</sub><br/><br/>
+  <a href="https://github.com/anorak1709/delhi-dih-buggers">GitHub</a> ·
+  <a href="https://github.com/anorak1709/delhi-dih-buggers/issues">Report Bug</a> ·
+  <a href="https://github.com/anorak1709/delhi-dih-buggers/issues">Request Feature</a>
 </p>

@@ -123,3 +123,5 @@ new.py                  # Flask backend (30+ API endpoints)
 - `.env` contains `VITE_API_URL` and Firebase config — do not commit `.env` files
 - The AI agent feature requires `OPENAI_API_KEY` set as a backend environment variable
 - Add tooltip definitions to `src/constants/tooltips.js` when introducing new financial metrics
+- All panels are always mounted (hidden via `display: none`) — never unmount panels on tab switch
+- GitHub repo: https://github.com/anorak1709/delhi-dih-buggers
