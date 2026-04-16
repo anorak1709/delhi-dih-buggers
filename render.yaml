@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: bloom-analytics-api
+    env: python
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    # One eventlet worker because Flask-SocketIO requires a single worker
+    # unless you configure a message queue. 120s timeout accommodates slower
+    # yfinance / OpenAI responses.
+    startCommand: gunicorn --worker-class eventlet -w 1 --timeout 120 --bind 0.0.0.0:$PORT new:app
+    healthCheckPath: /api/health
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      # Set this in Render's dashboard after the Vercel URL is known. Comma-separated.
+      # Example: https://bloom-analytics.vercel.app,https://www.yourdomain.com
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Secrets — configure in dashboard, never commit.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: NEWS_API_KEY
+        sync: false

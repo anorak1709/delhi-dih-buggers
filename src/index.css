@@ -127,9 +127,23 @@
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.glass-input:focus {
-  border-color: rgba(201, 152, 90, 0.4);
-  box-shadow: 0 0 0 3px rgba(201, 152, 90, 0.1), 0 0 20px rgba(201, 152, 90, 0.05);
+.glass-input:focus,
+.glass-input:focus-visible {
+  outline: none;
+  border-color: rgba(201, 152, 90, 0.7);
+  box-shadow: 0 0 0 3px rgba(201, 152, 90, 0.25), 0 0 20px rgba(201, 152, 90, 0.08);
+}
+
+/* Keyboard focus affordance for all interactive elements */
+:focus-visible {
+  outline: 2px solid rgba(201, 152, 90, 0.65);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Avoid doubling the ring on inputs that define their own focus style */
+.glass-input:focus-visible {
+  outline: none;
 }
 
 /* Animated gradient border */

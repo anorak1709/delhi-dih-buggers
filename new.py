@@ -1,3 +1,15 @@
+# Patch stdlib for cooperative sockets BEFORE importing anything that opens
+# network connections (requests, yfinance, etc.). Required for SocketIO under
+# gunicorn with the eventlet worker class in production.
+import os
+if os.environ.get('USE_EVENTLET', '1') != '0':
+    try:
+        import eventlet
+        eventlet.monkey_patch()
+    except ImportError:
+        # eventlet isn't required for dev; Werkzeug dev server is fine there.
+        pass
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import numpy as np
@@ -15,15 +27,23 @@ from scipy.cluster.hierarchy import linkage, dendrogram as scipy_dendrogram
 from scipy.spatial.distance import squareform
 from numpy.linalg import inv, pinv
 from flask_socketio import SocketIO
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import time as _time
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-socketio = SocketIO(app, cors_allowed_origins="*")
+# CORS: restrict to the deployed frontend in production. Comma-separated list
+# in ALLOWED_ORIGINS lets us support a preview + prod domain simultaneously.
+_default_origins = 'http://localhost:3000,http://127.0.0.1:3000'
+_allowed_origins = [
+    o.strip()
+    for o in os.environ.get('ALLOWED_ORIGINS', _default_origins).split(',')
+    if o.strip()
+]
+CORS(app, resources={r"/api/*": {"origins": _allowed_origins}})
+
+socketio = SocketIO(app, cors_allowed_origins=_allowed_origins)
 
 # Configuration
 NEWS_API_KEY = os.environ.get('NEWS_API_KEY', None)  # Get from environment variable
@@ -2999,9 +3019,17 @@ def vol_surface():
 
 
 if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    is_prod = os.environ.get('FLASK_ENV', 'development').lower() == 'production'
+    debug = not is_prod
+
     print("Starting Portfolio Optimizer Backend...")
-    print("Server running on http://localhost:5000")
+    print(f"Server running on http://localhost:{port}  (debug={debug})")
+    print(f"Allowed origins: {_allowed_origins}")
     print(f"News API configured: {NEWS_API_KEY is not None}")
     print(f"OpenAI configured: {openai_client is not None}")
     print("Data source: yfinance (Tiingo removed)")
-    socketio.run(app, debug=True, port=5000, allow_unsafe_werkzeug=True)
+
+    # In production we run under gunicorn with the eventlet worker, so this
+    # block is only exercised for local dev.
+    socketio.run(app, debug=debug, host='0.0.0.0', port=port)

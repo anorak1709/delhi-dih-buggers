@@ -1,0 +1,26 @@
+# Runtime deps for Bloom Analytics Flask backend (new.py).
+# Pinned to versions tested locally; bump intentionally.
+
+Flask==3.0.3
+Flask-Cors==4.0.1
+Flask-SocketIO==5.6.0
+python-socketio==5.16.1
+python-engineio==4.13.1
+Werkzeug==3.1.6
+
+# Numerical / data
+numpy==2.4.2
+pandas==2.3.3
+scipy==1.17.0
+matplotlib==3.10.8
+
+# Market data + HTTP
+yfinance==1.1.0
+requests==2.32.5
+
+# AI agent (optional, gated on OPENAI_API_KEY at runtime)
+openai==2.21.0
+
+# Production WSGI + async worker for Socket.IO
+gunicorn==23.0.0
+eventlet==0.40.4

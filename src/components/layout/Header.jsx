@@ -50,7 +50,27 @@ export default function Header() {
         {/* User info */}
         {user && (
           <div className="hidden sm:flex items-center gap-2 mr-2">
-            <span className="text-xs text-surface-400 truncate max-w-[140px]">{user.email}</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-surface-400 truncate max-w-[160px]">{user.email}</span>
+              {user.emailVerified ? (
+                <span
+                  title="Email verified"
+                  className="inline-flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded-md bg-accent/10 text-accent border border-accent/20"
+                >
+                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                  Verified
+                </span>
+              ) : (
+                <span
+                  title="Email not verified"
+                  className="text-2xs px-1.5 py-0.5 rounded-md bg-warn/10 text-warn border border-warn/20"
+                >
+                  Unverified
+                </span>
+              )}
+            </div>
             <motion.button
               onClick={logOut}
               whileHover={{ scale: 1.05 }}

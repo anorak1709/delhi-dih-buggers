@@ -7,6 +7,7 @@ import Header from './components/layout/Header';
 import ToastContainer from './components/ui/Toast';
 import Loading from './components/ui/Loading';
 import LoginPage from './components/auth/LoginPage';
+import VerificationBanner from './components/ui/VerificationBanner';
 import DashboardPanel from './components/dashboard/DashboardPanel';
 import PortfolioPanel from './components/portfolio/PortfolioPanel';
 import AnalysisPanel from './components/analysis/AnalysisPanel';
@@ -61,6 +62,7 @@ export default function App() {
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0">
         <Header />
+        <VerificationBanner />
         <main className="flex-1 overflow-y-auto p-6 lg:p-8">
           {Object.entries(panels).map(([tabKey, PanelComponent]) => {
             const isActive = activeTab === tabKey;

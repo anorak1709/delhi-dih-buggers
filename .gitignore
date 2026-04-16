@@ -1,4 +1,12 @@
 node_modules
 dist
 .env
+.env.local
+.env.production
+.env.development
 .claude/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.vercel

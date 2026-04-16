@@ -4,41 +4,95 @@ import { useAuth } from '../../context/AuthContext';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 
+const MODE = {
+  SIGNIN: 'signin',
+  SIGNUP: 'signup',
+  RESET: 'reset',
+};
+
+function friendlyError(err) {
+  const code = err?.code || '';
+  if (
+    code === 'auth/user-not-found' ||
+    code === 'auth/wrong-password' ||
+    code === 'auth/invalid-credential'
+  ) {
+    return 'Invalid email or password.';
+  }
+  if (code === 'auth/email-already-in-use') {
+    return 'An account with this email already exists.';
+  }
+  if (code === 'auth/weak-password') {
+    return 'Password should be at least 6 characters.';
+  }
+  if (code === 'auth/invalid-email') {
+    return 'Please enter a valid email address.';
+  }
+  if (code === 'auth/too-many-requests') {
+    return 'Too many attempts. Please wait a moment and try again.';
+  }
+  if (code === 'auth/missing-email') {
+    return 'Please enter your email address.';
+  }
+  if (code === 'auth/network-request-failed') {
+    return 'Network error. Check your connection and try again.';
+  }
+  return err?.message || 'Something went wrong.';
+}
+
 export default function LoginPage() {
-  const { signIn, signUp } = useAuth();
-  const [isSignUp, setIsSignUp] = useState(false);
+  const { signIn, signUp, resetPassword } = useAuth();
+  const [mode, setMode] = useState(MODE.SIGNIN);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
+  const [justSignedUp, setJustSignedUp] = useState(false);
+
+  const switchMode = (next) => {
+    setMode(next);
+    setError('');
+    setInfo('');
+    setJustSignedUp(false);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setInfo('');
     setLoading(true);
     try {
-      if (isSignUp) {
+      if (mode === MODE.SIGNUP) {
         await signUp(email, password);
+        setJustSignedUp(true);
+        setInfo(`Account created. We sent a verification link to ${email}.`);
+      } else if (mode === MODE.RESET) {
+        await resetPassword(email);
+        setInfo(`If an account exists for ${email}, a reset link is on its way.`);
       } else {
         await signIn(email, password);
       }
     } catch (err) {
-      const code = err.code || '';
-      if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
-        setError('Invalid email or password.');
-      } else if (code === 'auth/email-already-in-use') {
-        setError('An account with this email already exists.');
-      } else if (code === 'auth/weak-password') {
-        setError('Password should be at least 6 characters.');
-      } else if (code === 'auth/invalid-email') {
-        setError('Please enter a valid email address.');
-      } else {
-        setError(err.message || 'Something went wrong.');
-      }
+      setError(friendlyError(err));
     } finally {
       setLoading(false);
     }
   };
+
+  const title =
+    mode === MODE.SIGNUP
+      ? 'Create Account'
+      : mode === MODE.RESET
+      ? 'Reset Password'
+      : 'Welcome Back';
+
+  const submitLabel =
+    mode === MODE.SIGNUP
+      ? 'Create Account'
+      : mode === MODE.RESET
+      ? 'Send Reset Link'
+      : 'Sign In';
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-surface-900 dark:bg-surface-900 bg-surface-50 relative overflow-hidden">
@@ -83,16 +137,23 @@ export default function LoginPage() {
         >
           <AnimatePresence mode="wait">
             <motion.h2
-              key={isSignUp ? 'signup' : 'signin'}
+              key={mode}
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 10 }}
               transition={{ duration: 0.2 }}
-              className="text-lg font-semibold text-surface-100 dark:text-surface-100 text-surface-800 mb-6"
+              className="text-lg font-semibold text-surface-100 dark:text-surface-100 text-surface-800 mb-2"
             >
-              {isSignUp ? 'Create Account' : 'Welcome Back'}
+              {title}
             </motion.h2>
           </AnimatePresence>
+
+          {mode === MODE.RESET && (
+            <p className="text-xs text-surface-400 mb-6">
+              Enter the email on your account and we'll send a secure link to reset your password.
+            </p>
+          )}
+          {mode !== MODE.RESET && <div className="mb-4" />}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input
@@ -102,16 +163,32 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              autoComplete="email"
             />
-            <Input
-              label="Password"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={6}
-            />
+            {mode !== MODE.RESET && (
+              <Input
+                label="Password"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+                autoComplete={mode === MODE.SIGNUP ? 'new-password' : 'current-password'}
+              />
+            )}
+
+            {mode === MODE.SIGNIN && (
+              <div className="flex justify-end -mt-1">
+                <button
+                  type="button"
+                  onClick={() => switchMode(MODE.RESET)}
+                  className="text-xs text-surface-400 hover:text-accent transition-colors duration-200 cursor-pointer"
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
 
             {error && (
               <motion.p
@@ -123,29 +200,49 @@ export default function LoginPage() {
               </motion.p>
             )}
 
+            {info && (
+              <motion.p
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-xs text-accent"
+              >
+                {info}
+              </motion.p>
+            )}
+
             <Button
               type="submit"
               loading={loading}
               className="w-full mt-2"
               size="lg"
+              disabled={justSignedUp && mode === MODE.SIGNUP}
             >
-              {isSignUp ? 'Create Account' : 'Sign In'}
+              {submitLabel}
             </Button>
           </form>
 
-          <div className="mt-6 text-center">
-            <button
-              type="button"
-              onClick={() => {
-                setIsSignUp(!isSignUp);
-                setError('');
-              }}
-              className="text-xs text-surface-400 hover:text-accent transition-colors duration-200 cursor-pointer"
-            >
-              {isSignUp
-                ? 'Already have an account? Sign in'
-                : "Don't have an account? Create one"}
-            </button>
+          <div className="mt-6 text-center space-y-2">
+            {mode === MODE.RESET ? (
+              <button
+                type="button"
+                onClick={() => switchMode(MODE.SIGNIN)}
+                className="text-xs text-surface-400 hover:text-accent transition-colors duration-200 cursor-pointer"
+              >
+                Back to sign in
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() =>
+                  switchMode(mode === MODE.SIGNUP ? MODE.SIGNIN : MODE.SIGNUP)
+                }
+                className="text-xs text-surface-400 hover:text-accent transition-colors duration-200 cursor-pointer"
+              >
+                {mode === MODE.SIGNUP
+                  ? 'Already have an account? Sign in'
+                  : "Don't have an account? Create one"}
+              </button>
+            )}
           </div>
         </motion.div>
 
